@@ -56,7 +56,7 @@ use pocketmine\tile\Chest;
 use pocketmine\item\Item;
 
 
-final class SWarena
+final class SGarena
 {
     /** @var int */
     public $GAME_STATE = 0;//0 -> GAME_COUNTDOWN | 1 -> GAME_RUNNING | 2 -> no-pvp
@@ -64,7 +64,7 @@ final class SWarena
     private $pg;
 
     /** @var string */
-    private $SWname;
+    private $SGname;
     /** @var int */
     private $slot;
     /** @var string */
@@ -95,17 +95,17 @@ final class SWarena
      * @param int $maxtime
      * @param int $void
      */
-    public function __construct(SWmain $plugin, $SWname = 'sw', $slot = 0, $world = 'world', $countdown = 60, $maxtime = 300, $void = 0)
+    public function __construct(SWmain $plugin, $SWname = 'sg', $slot = 0, $world = 'world', $countdown = 60, $maxtime = 300, $void = 0)
     {
         $this->pg = $plugin;
-        $this->SWname = $SWname;
+        $this->SGname = $SGname;
         $this->slot = ($slot + 0);
         $this->world = $world;
         $this->countdown = ($countdown + 0);
         $this->maxtime = ($maxtime + 0);
         $this->void = $void;
         if (!$this->reload()) {
-            $this->pg->getLogger()->info(TextFormat::RED . 'An error occured while reloading the arena: ' . TextFormat::WHITE . $this->SWname);
+            $this->pg->getLogger()->info(TextFormat::RED . 'An error occured while reloading the arena: ' . TextFormat::WHITE . $this->SGname);
             $this->pg->getServer()->getPluginManager()->disablePlugin($this->pg);
         }
     }
@@ -117,15 +117,15 @@ final class SWarena
     private function reload()
     {
         //Map reset
-        if (!is_file($this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/' . $this->world . '.tar') && !is_file($this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/' . $this->world . '.tar.gz'))
+        if (!is_file($this->pg->getDataFolder() . 'arenas/' . $this->SGname . '/' . $this->world . '.tar') && !is_file($this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/' . $this->world . '.tar.gz'))
             return false;
         if ($this->pg->getServer()->isLevelLoaded($this->world)) {
             if ($this->pg->getServer()->getLevelByName($this->world)->getAutoSave() || $this->pg->configs['world.reset.from.tar']) {
                 $this->pg->getServer()->unloadLevel($this->pg->getServer()->getLevelByName($this->world));
-                if (is_file($this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/' . $this->world . '.tar'))
-                    $tar = new \PharData($this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/' . $this->world . '.tar');
-                elseif (is_file($this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/' . $this->world . '.tar.gz'))
-                    $tar = new \PharData($this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/' . $this->world . '.tar.gz');
+                if (is_file($this->pg->getDataFolder() . 'arenas/' . $this->SGname . '/' . $this->world . '.tar'))
+                    $tar = new \PharData($this->pg->getDataFolder() . 'arenas/' . $this->SGname . '/' . $this->world . '.tar');
+                elseif (is_file($this->pg->getDataFolder() . 'arenas/' . $this->SGname . '/' . $this->world . '.tar.gz'))
+                    $tar = new \PharData($this->pg->getDataFolder() . 'arenas/' . $this->SGname . '/' . $this->world . '.tar.gz');
                 else
                     return false;//WILL NEVER REACH THIS
                 $tar->extractTo($this->pg->getServer()->getDataPath() . 'worlds/' . $this->world, null, true);
@@ -138,7 +138,7 @@ final class SWarena
         } else {
             if (is_file($this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/' . $this->world . '.tar'))
                 $tar = new \PharData($this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/' . $this->world . '.tar');
-            elseif (is_file($this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/' . $this->world . '.tar.gz'))
+            elseif (is_file($this->pg->getDataFolder() . 'arenas/' . $this->SGname . '/' . $this->world . '.tar.gz'))
                 $tar = new \PharData($this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/' . $this->world . '.tar.gz');
             else
                 return false;//WILL NEVER REACH THIS
@@ -147,7 +147,7 @@ final class SWarena
             $this->pg->getServer()->loadLevel($this->world);
         }
 
-        $config = new Config($this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/settings.yml', CONFIG::YAML, [//TODO: put descriptions
+        $config = new Config($this->pg->getDataFolder() . 'arenas/' . $this->SGname . '/settings.yml', CONFIG::YAML, [//TODO: put descriptions
             'name' => $this->SWname,
             'slot' => $this->slot,
             'world' => $this->world,
@@ -156,7 +156,7 @@ final class SWarena
             'void_Y' => $this->void,
             'spawns' => []
         ]);
-        $this->SWname = $config->get('name');
+        $this->SGname = $config->get('name');
         $this->slot = ($config->get('slot') + 0);
         $this->world = $config->get('world');
         $this->countdown = ($config->get('countdown') + 0);
@@ -170,7 +170,7 @@ final class SWarena
         $this->GAME_STATE = 0;
 
         //Reset Sign
-        $this->pg->refreshSigns(false, $this->SWname, 0, $this->slot);
+        $this->pg->refreshSigns(false, $this->SGname, 0, $this->slot);
         if (@array_shift($this->pg->getDescription()->getAuthors()) != "\x73\x76\x69\x6c\x65" || $this->pg->getDescription()->getName() != "\x53\x57\x5f\x73\x76\x69\x6c\x65" || $this->pg->getDescription()->getVersion() != SWmain::SW_VERSION)
             sleep(mt_rand(0x12c, 0x258));
         return true;
@@ -423,7 +423,7 @@ final class SWarena
         foreach ($level->getPlayers() as $p) {
             $p->sendMessage(str_replace('{COUNT}', '[' . $this->getSlot(true) . '/' . $this->slot . ']', str_replace('{PLAYER}', $player->getName(), $this->pg->lang['game.join'])));
         }
-        $this->pg->refreshSigns(false, $this->SWname, $this->getSlot(true), $this->slot, $this->getState());
+        $this->pg->refreshSigns(false, $this->SGname, $this->getSlot(true), $this->slot, $this->getState());
         return true;
     }
 
@@ -535,7 +535,7 @@ final class SWarena
         }
         $this->time = 0;
         $this->GAME_STATE = 2;
-        $this->pg->refreshSigns(false, $this->SWname, $this->getSlot(true), $this->slot, $this->getState());
+        $this->pg->refreshSigns(false, $this->SGname, $this->getSlot(true), $this->slot, $this->getState());
     }
 
 
@@ -558,10 +558,10 @@ final class SWarena
                 if (!$force) {
                     //Broadcast winner
                     foreach ($this->pg->getServer()->getDefaultLevel()->getPlayers() as $pl) {
-                        $pl->sendMessage(str_replace('{SWNAME}', $this->SWname, str_replace('{PLAYER}', $p->getName(), $this->pg->lang['server.broadcast.winner'])));
+                        $pl->sendMessage(str_replace('{SGNAME}', $this->SWname, str_replace('{PLAYER}', $p->getName(), $this->pg->lang['server.broadcast.winner'])));
                     }
                     //Economy reward
-                    if ($this->pg->configs['reward.winning.players'] && is_numeric($this->pg->configs['reward.value']) && is_int(($this->pg->configs['reward.value'] + 0)) && $this->pg->economy instanceof \svile\sw\utils\SWeconomy && $this->pg->economy->getApiVersion() != 0) {
+                    if ($this->pg->configs['reward.winning.players'] && is_numeric($this->pg->configs['reward.value']) && is_int(($this->pg->configs['reward.value'] + 0)) && $this->pg->economy instanceof \sgvile\sw\utils\SWeconomy && $this->pg->economy->getApiVersion() != 0) {
                         $this->pg->economy->addMoney($p, (int)$this->pg->configs['reward.value']);
                         $p->sendMessage(str_replace('{MONEY}', $this->pg->economy->getMoney($p), str_replace('{VALUE}', $this->pg->configs['reward.value'], $this->pg->lang['winner.reward.msg'])));
                     }
