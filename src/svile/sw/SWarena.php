@@ -104,50 +104,42 @@ final class SWarena
         $this->countdown = ($countdown + 0);
         $this->maxtime = ($maxtime + 0);
         $this->void = $void;
-        if (!$this->reload()) {
+        if (!$this->reload($error)) {
             $this->pg->getLogger()->info(TextFormat::RED . 'An error occured while reloading the arena: ' . TextFormat::WHITE . $this->SWname);
+            $this->pg->getLogger()->info($error);
             $this->pg->getServer()->getPluginManager()->disablePlugin($this->pg);
         }
     }
 
+    public function getName() : string
+    {
+        return $this->SWname;
+    }
 
     /**
      * @return bool
      */
-    private function reload()
+    private function reload(&$error = null) : bool
     {
         //Map reset
-        if (!is_file($this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/' . $this->world . '.tar') && !is_file($this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/' . $this->world . '.tar.gz'))
+        if (!is_file($file = $this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/' . $this->world . '.tar') && !is_file($file = $this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/' . $this->world . '.tar.gz')) {
+            $error = "Cannot find world backup file $file";
             return false;
-        if ($this->pg->getServer()->isLevelLoaded($this->world)) {
-            if ($this->pg->getServer()->getLevelByName($this->world)->getAutoSave() || $this->pg->configs['world.reset.from.tar']) {
-                $this->pg->getServer()->unloadLevel($this->pg->getServer()->getLevelByName($this->world));
-                if (is_file($this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/' . $this->world . '.tar'))
-                    $tar = new \PharData($this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/' . $this->world . '.tar');
-                elseif (is_file($this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/' . $this->world . '.tar.gz'))
-                    $tar = new \PharData($this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/' . $this->world . '.tar.gz');
-                else
-                    return false;//WILL NEVER REACH THIS
-                $tar->extractTo($this->pg->getServer()->getDataPath() . 'worlds/' . $this->world, null, true);
-                unset($tar);
-                $this->pg->getServer()->loadLevel($this->world);
-            }
-            $this->pg->getServer()->unloadLevel($this->pg->getServer()->getLevelByName($this->world));
-            $this->pg->getServer()->loadLevel($this->world);
-            $this->pg->getServer()->getLevelByName($this->world)->setAutoSave(false);
-        } else {
-            if (is_file($this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/' . $this->world . '.tar'))
-                $tar = new \PharData($this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/' . $this->world . '.tar');
-            elseif (is_file($this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/' . $this->world . '.tar.gz'))
-                $tar = new \PharData($this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/' . $this->world . '.tar.gz');
-            else
-                return false;//WILL NEVER REACH THIS
-            $tar->extractTo($this->pg->getServer()->getDataPath() . 'worlds/' . $this->world, null, true);
-            unset($tar);
-            $this->pg->getServer()->loadLevel($this->world);
         }
 
-        $config = new Config($this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/settings.yml', CONFIG::YAML, [//TODO: put descriptions
+        if ($this->pg->getServer()->isLevelLoaded($this->world)) {
+            $this->pg->getServer()->unloadLevel($this->pg->getServer()->getLevelByName($this->world));
+        }
+
+        if ($this->pg->configs['world.reset.from.tar']) {
+            $tar = new \PharData($file);
+            $tar->extractTo($this->pg->getServer()->getDataPath() . 'worlds/' . $this->world, null, true);
+        }
+
+        $this->pg->getServer()->loadLevel($this->world);
+        $this->pg->getServer()->getLevelByName($this->world)->setAutoSave(false);
+
+        $config = new Config($this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/settings.yml', Config::YAML, [//TODO: put descriptions
             'name' => $this->SWname,
             'slot' => $this->slot,
             'world' => $this->world,
@@ -156,23 +148,22 @@ final class SWarena
             'void_Y' => $this->void,
             'spawns' => []
         ]);
+
         $this->SWname = $config->get('name');
-        $this->slot = ($config->get('slot') + 0);
+        $this->slot = (int) $config->get('slot');
         $this->world = $config->get('world');
-        $this->countdown = ($config->get('countdown') + 0);
-        $this->maxtime = ($config->get('maxGameTime') + 0);
+        $this->countdown = (int) $config->get('countdown');
+        $this->maxtime = (int) $config->get('maxGameTime');
         $this->spawns = $config->get('spawns');
-        $this->void = ($config->get('void_Y') + 0);
-        unset($config);
+        $this->void = (int) $config->get('void_Y');
+
         $this->players = [];
         $this->spectators = [];
         $this->time = 0;
         $this->GAME_STATE = 0;
 
         //Reset Sign
-        $this->pg->refreshSigns(false, $this->SWname, 0, $this->slot);
-        if (@array_shift($this->pg->getDescription()->getAuthors()) != "\x73\x76\x69\x6c\x65" || $this->pg->getDescription()->getName() != "\x53\x57\x5f\x73\x76\x69\x6c\x65" || $this->pg->getDescription()->getVersion() != SWmain::SW_VERSION)
-            sleep(mt_rand(0x12c, 0x258));
+        $this->pg->refreshSigns($this->SWname, 0, $this->slot);
         return true;
     }
 
@@ -248,7 +239,7 @@ final class SWarena
             $player->sendMessage(TextFormat::AQUA . '→' . TextFormat::RED . 'This arena have only got ' . TextFormat::WHITE . $this->slot . TextFormat::RED . ' slots');
             return false;
         }
-        $config = new Config($this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/settings.yml', CONFIG::YAML);
+        $config = new Config($this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/settings.yml', Config::YAML);
 
         if (empty($config->get('spawns', []))) {
             $keys = [];
@@ -305,15 +296,16 @@ final class SWarena
         $contents = $this->pg->getChestContents();
         foreach ($this->pg->getServer()->getLevelByName($this->world)->getTiles() as $tile) {
             if ($tile instanceof Chest) {
-                //CLEARS CHESTS
-                for ($i = 0; $i < $tile->getSize(); $i++) {
-                    $tile->getInventory()->setItem($i, Item::get(0));
-                }
-                //SET CONTENTS
-                if (empty($contents))
+
+                $inventory = $tile->getInventory();
+                $inventory->clearAll();
+
+                if (empty($contents)) {
                     $contents = $this->pg->getChestContents();
+                }
+
                 foreach (array_shift($contents) as $key => $val) {
-                    $tile->getInventory()->setItem($key, Item::get($val[0], 0, $val[1]));
+                    $inventory->setItem($key, Item::get($val[0], 0, $val[1]));
                 }
             }
         }
@@ -423,7 +415,7 @@ final class SWarena
         foreach ($level->getPlayers() as $p) {
             $p->sendMessage(str_replace('{COUNT}', '[' . $this->getSlot(true) . '/' . $this->slot . ']', str_replace('{PLAYER}', $player->getName(), $this->pg->lang['game.join'])));
         }
-        $this->pg->refreshSigns(false, $this->SWname, $this->getSlot(true), $this->slot, $this->getState());
+        $this->pg->refreshSigns($this->SWname, $this->getSlot(true), $this->slot, $this->getState());
         return true;
     }
 
@@ -449,7 +441,7 @@ final class SWarena
         if ($this->GAME_STATE == 0)
             $this->spawns[] = $this->players[$playerName];
         unset($this->players[$playerName]);
-        $this->pg->refreshSigns(false, $this->SWname, $this->getSlot(true), $this->slot, $this->getState());
+        $this->pg->refreshSigns($this->SWname, $this->getSlot(true), $this->slot, $this->getState());
         if ($left)
             foreach ($this->pg->getServer()->getLevelByName($this->world)->getPlayers() as $p)
                 $p->sendMessage(str_replace('{COUNT}', '[' . $this->getSlot(true) . '/' . $this->slot . ']', str_replace('{PLAYER}', $playerName, $this->pg->lang['game.left'])));
@@ -472,7 +464,6 @@ final class SWarena
     public function closePlayer(Player $p, $left = false, $spectate = false)
     {
         if ($this->quit($p->getName(), $left, $spectate)) {
-            $p->gamemode = 4;//Just to make sure setGamemode() won't return false if the gm is the same
             $p->setGamemode($p->getServer()->getDefaultGamemode());
             $p->getInventory()->clearAll();
             $p->removeAllEffects();
@@ -535,7 +526,7 @@ final class SWarena
         }
         $this->time = 0;
         $this->GAME_STATE = 2;
-        $this->pg->refreshSigns(false, $this->SWname, $this->getSlot(true), $this->slot, $this->getState());
+        $this->pg->refreshSigns($this->SWname, $this->getSlot(true), $this->slot, $this->getState());
     }
 
 
