@@ -1,0 +1,7 @@
+--- # Poggit-CI Manifest. Open the CI at https://poggit.pmmp.io/ci/Muqsit/SkyWars-PocketMine
+branches:
+- master
+projects:
+  SkyWars-PocketMine:
+    path: ""
+...
