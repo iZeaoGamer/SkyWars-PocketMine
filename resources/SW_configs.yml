@@ -1,5 +1,5 @@
 ---
-1st_line: "&l&a[&bSW&c]"
+1st_line: "&l&a[&bSW&a]"
 2nd_line: "&l&e{SWNAME}"
 CONFIG_VERSION: 0.7dev
 always.spawn.in.defaultLevel: true

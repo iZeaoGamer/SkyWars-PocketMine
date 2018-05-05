@@ -50,103 +50,90 @@ use pocketmine\utils\TextFormat;
 
 class SWcommands extends PluginCommand {
 
-    const ARG_OPTIONAL = 0;
-    const ARG_MANDATORY = 1;
-
     private function formatUsageMessage(string $message) : string
     {
         //The widely-accepted rule is <> brackets for mandatory fields and [] for optional.
         //Highlights message in red, <> in yellow and [] in gray
 
         return TextFormat::RED . strtr($message, [
-            "[" => TextFormat::GRAY . "[",
-            "]" => "]" . TextFormat::RED,
-            "<" => TextFormat::YELLOW . "<",
-            ">" => ">" . TextFormat::RED
-        ]);
+                "[" => TextFormat::GRAY . "[",
+                "]" => "]" . TextFormat::RED,
+                "<" => TextFormat::YELLOW . "<",
+                ">" => ">" . TextFormat::RED
+            ]);
     }
 
     public function execute(CommandSender $sender, string $commandLabel, array $args) : bool
     {
-        if (!($sender instanceof Player) || !$sender->isOp()) {
-            switch (strtolower(array_shift($args))) {
-                case "join":
-                    if (count($args) > 2 || (!($sender instanceof Player) && !isset($args[1]))) {
-                        $sender->sendMessage($this->formatUsageMessage("Usage: /" . $commandLabel . " join <arena> [PlayerName=YOU]"));
-                        return false;
-                    }
-
-                    if (!isset($args[0])) {
-                        if ($sender instanceof Player) {
-                            foreach ($this->getPlugin()->arenas as $arena) {
-                                if ($arena->join($sender, false)) {
-                                    return true;
-                                }
-                            }
-                            $sender->sendMessage(TextFormat::RED . "No games, retry later");
-                        }
-                        return false;
-                    }
-
-                    //SW NAME
-                    $arena = $args[0];
-                    if (!isset($this->getPlugin()->arenas[$arena])) {
-                        $sender->sendMessage(TextFormat::RED . "Arena with name: " . TextFormat::WHITE . $arena . TextFormat::RED . " doesn't exist.");
-                        return false;
-                    }
-
-                    if ($sender->isOp() && isset($args[1])) {
-                        $p = $sender->getServer()->getPlayer($args[1]);
-                        if ($p !== null) {
-                            if ($this->getPlugin()->inArena($p->getName())) {
-                                $sender->sendMessage(TextFormat::RED . $p->getName() . " is already inside an arena.");
-                                return false;
-                            }
-
-                            $this->getPlugin()->arenas[$arena]->join($p);
-                            $sender->sendMessage(TextFormat::GREEN . $p->getName() . " has been sent to " . TextFormat::YELLOW . $arena . TextFormat::GREEN . "arena.");
-                            return true;
-                        }
-                        $sender->sendMessage(TextFormat::RED . "Player not found!");
-                        return false;
-                    }
-
-                    if ($sender instanceof Player) {
-                        if ($this->getPlugin()->inArena($sender->getName())) {
-                            $sender->sendMessage(TextFormat::RED . "You are already inside an arena.");
-                            return false;
-                        }
-
-                        $this->getPlugin()->arenas[$arena]->join($sender);
-                        return true;
-                    }
-
-                    $sender->sendMessage(TextFormat::RED . "Player not found!");
+        switch ($cmd = strtolower(array_shift($args) ?? "help")) {
+            case "join":
+                if (count($args) > 2 || (!($sender instanceof Player) && !isset($args[1]))) {
+                    $sender->sendMessage($this->formatUsageMessage("Usage: /" . $commandLabel . " join <arena> [PlayerName=YOU]"));
                     return false;
-                case "quit":
+                }
+
+                if (!isset($args[0])) {
                     if ($sender instanceof Player) {
                         foreach ($this->getPlugin()->arenas as $arena) {
-                            if ($arena->closePlayer($sender, true)) {
+                            if ($arena->join($sender, false)) {
                                 return true;
                             }
                         }
+                        $sender->sendMessage(TextFormat::RED . "No games, retry later");
+                    }
+                    return false;
+                }
 
-                        $sender->sendMessage(TextFormat::RED . "You are not in an arena.");
+                //SW NAME
+                $arena = $args[0];
+                if (!isset($this->getPlugin()->arenas[$arena])) {
+                    $sender->sendMessage(TextFormat::RED . "Arena with name: " . TextFormat::WHITE . $arena . TextFormat::RED . " doesn't exist.");
+                    return false;
+                }
+
+                if ($sender->isOp() && isset($args[1])) {
+                    $p = $sender->getServer()->getPlayer($args[1]);
+                    if ($p !== null) {
+                        if ($this->getPlugin()->inArena($p)) {
+                            $sender->sendMessage(TextFormat::RED . $p->getName() . " is already inside an arena.");
+                            return false;
+                        }
+
+                        $this->getPlugin()->arenas[$arena]->join($p);
+                        $sender->sendMessage(TextFormat::GREEN . $p->getName() . " has been sent to " . TextFormat::YELLOW . $arena . TextFormat::GREEN . "arena.");
+                        return true;
+                    }
+                    $sender->sendMessage(TextFormat::RED . "Player not found!");
+                    return false;
+                }
+
+                if ($sender instanceof Player) {
+                    if ($this->getPlugin()->inArena($sender)) {
+                        $sender->sendMessage(TextFormat::RED . "You are already inside an arena.");
                         return false;
                     }
 
-                    $sender->sendMessage(TextFormat::RED . "This command is only avaible in game.");
-                    return false;
-                default:
-                    //No option found, usage
-                    $sender->sendMessage($this->formatUsageMessage("Usage: /" . $commandLabel . " <join|quit>"));
-                    return false;
-            }
-        }
+                    $this->getPlugin()->arenas[$arena]->join($sender);
+                    return true;
+                }
 
-        //Searchs for a valid option
-        switch (strtolower(array_shift($args))) {
-            case "create":
+                $sender->sendMessage(TextFormat::RED . "Player not found!");
+                return false;
+            case "quit":
+                if ($sender instanceof Player) {
+                    foreach ($this->getPlugin()->arenas as $arena) {
+                        if ($arena->closePlayer($sender, true)) {
+                            return true;
+                        }
+                    }
+
+                    $sender->sendMessage(TextFormat::RED . "You are not in an arena.");
+                    return false;
+                }
+
+                $sender->sendMessage(TextFormat::RED . "This command is only avaible in game.");
+                return false;
+            case ($cmd === "create" && $sender->isOp()):
                 $args_c = count($args);
                 if ($args_c < 2 || $args_c > 5) {
                     $sender->sendMessage($this->formatUsageMessage("Usage: /" . $commandLabel . " create <SWname> <slots> [countdown=30] [maxGameTime=600]"));
@@ -295,7 +282,7 @@ class SWcommands extends PluginCommand {
 
                 $sender->teleport($sender->getServer()->getLevelByName($level_name)->getSpawnLocation());
                 return true;
-            case "setspawn":
+            case ($cmd === "setspawn" && $sender->isOp()):
                 if (count($args) !== 1) {
                     $sender->sendMessage($this->formatUsageMessage("Usage: /" . $commandLabel . " setspawn <slot>"));
                     return false;
@@ -330,7 +317,7 @@ class SWcommands extends PluginCommand {
                     }
                 }
                 return true;
-            case "list":
+            case ($cmd === "list" && $sender->isOp()):
                 if (!empty($this->getPlugin()->arenas)) {
                     $sender->sendMessage(TextFormat::GREEN . "Loaded arenas:");
                     foreach ($this->getPlugin()->arenas as $key => $val) {
@@ -341,7 +328,7 @@ class SWcommands extends PluginCommand {
 
                 $sender->sendMessage(TextFormat::RED . "You haven't configured any arenas, create one using " . TextFormat::YELLOW . "/" . $commandLabel . " create");
                 return false;
-            case "delete":
+            case ($cmd === "delete" && $sender->isOp()):
                 if (count($args) !== 1) {
                     $sender->sendMessage($this->formatUsageMessage("Usage: /" . $commandLabel . " delete <arena>"));
                     return false;
@@ -370,7 +357,7 @@ class SWcommands extends PluginCommand {
                 @rmdir($this->getPlugin()->getDataFolder() . "arenas/" . $arena);
                 $sender->sendMessage(TextFormat::GREEN . "Arena: '" . TextFormat::DARK_GREEN . $arena . TextFormat::GREEN . "' deleted!");
                 return true;
-            case "signdelete":
+            case ($cmd === "signdelete" && $sender->isOp()):
                 if (count($args) !== 1) {
                     $sender->sendMessage($this->formatUsageMessage("Usage: /" . $commandLabel . " signdelete <arena|all>"));
                     return false;
@@ -389,10 +376,16 @@ class SWcommands extends PluginCommand {
 
                 $sender->sendMessage(TextFormat::YELLOW . "Deleted " . $count . " signs from " . ($arena === "all" ? "ALL arenas" : "'" . $arena . "' Arena") . ".");
                 return true;
+            case "help":
             default:
-                $sender->sendMessage($this->formatUsageMessage("Usage: /sw <create|setspawn|list|delete|signdelete>"));
+                if ($sender->isOp()) {
+                    $sender->sendMessage($this->formatUsageMessage("Usage: /sw <join|quit|create|setspawn|list|delete|signdelete>"));
+                } else {
+                    $sender->sendMessage($this->formatUsageMessage("Usage: /" . $commandLabel . " <join|quit>"));
+                }
                 return false;
         }
+
         return true;
     }
 }

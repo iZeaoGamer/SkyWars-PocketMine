@@ -40,9 +40,12 @@
 
 namespace svile\sw;
 
+use pocketmine\entity\Living;
+use pocketmine\event\entity\EntityDamageEvent;
 use pocketmine\item\Item;
 use pocketmine\level\Position;
 use pocketmine\math\Vector3;
+use pocketmine\Player;
 use pocketmine\plugin\PluginBase;
 use pocketmine\tile\Sign;
 use pocketmine\utils\TextFormat;
@@ -71,6 +74,9 @@ class SWmain extends PluginBase {
 
     /** @var SWeconomy|null */
     public $economy;
+
+    /** @var string[] */
+    private $player_arenas = [];
 
     public function onEnable() : void
     {
@@ -159,12 +165,61 @@ class SWmain extends PluginBase {
         }
     }
 
+    public function getPlayerArena(Player $player) : ?SWarena
+    {
+        return isset($this->player_arenas[$pid = $player->getId()]) ? $this->arenas[$this->player_arenas[$pid]] : null;
+    }
+
+    public function setPlayerArena(Player $player, ?string $arena) : void
+    {
+        if ($arena === null) {
+            unset($this->player_arenas[$player->getId()]);
+            return;
+        }
+
+        $this->player_arenas[$player->getId()] = $arena;
+    }
+
+    public function getArenaFromSign(Position $pos) : ?string
+    {
+        return $this->signs[$pos->x . ":" . $pos->y . ":" . $pos->z . ":" . $pos->getLevel()->getFolderName()] ?? null;
+    }
+
+    public function getNearbySigns(Position $pos, int $radius, &$arena = null) : \Generator
+    {
+        $pos->x = floor($pos->x);
+        $pos->y = floor($pos->y);
+        $pos->z = floor($pos->z);
+
+        $level = $pos->getLevel()->getFolderName();
+
+        $minX = $pos->x - $radius;
+        $minY = $pos->y - $radius;
+        $minZ = $pos->z - $radius;
+
+        $maxX = $pos->x + $radius;
+        $maxY = $pos->y + $radius;
+        $maxZ = $pos->z + $radius;
+
+        for ($x = $minX; $x <= $maxX; ++$x) {
+            for ($y = $minY; $y <= $maxY; ++$y) {
+                for ($z = $minZ; $z <= $maxZ; ++$z) {
+                    $key =  $x . ":" . $y . ":" . $z . ":" . $level;
+                    if (isset($this->signs[$key])) {
+                        $arena = $this->signs[$key];
+                        yield new Vector3($x, $y, $z);
+                    }
+                }
+            }
+        }
+    }
+
     public function setSign(string $arena, Position $pos) : void
     {
         $this->signs[$pos->x . ":" . $pos->y . ":" . $pos->z . ":" . $pos->getLevel()->getFolderName()] = $arena;
     }
 
-    public function deleteSign(Position $pos) : int
+    public function deleteSign(Position $pos) : void
     {
         $level = $pos->getLevel();
 
@@ -184,7 +239,7 @@ class SWmain extends PluginBase {
             }
         } else {
             foreach (array_keys($this->signs, $arena, true) as $xyzw) {
-                $xyzw = explode(":", $sign, 4);
+                $xyzw = explode(":", $xyzw, 4);
 
                 $server = $this->getServer();
                 $server->loadLevel($xyzw[3]);
@@ -234,10 +289,10 @@ class SWmain extends PluginBase {
         }
     }
 
-    public function inArena(string $playerName) : bool
+    public function inArena(Player $player) : bool
     {
         foreach ($this->arenas as $arena) {
-            if ($arena->inArena($playerName)) {
+            if ($arena->inArena($player)) {
                 return true;
             }
         }
@@ -442,5 +497,51 @@ class SWmain extends PluginBase {
 
         shuffle($templates);
         return $templates;
+    }
+
+    public function sendDeathMessage(Player $player) : void
+    {
+        $arena = $this->getPlayerArena($player);
+        $status = "[" . ($arena->getSlot(true) - 1) . "/" . $arena->getSlot() . "]";
+
+        $last_cause_ev = $player->getLastDamageCause();
+        switch ($last_cause_ev->getCause()) {
+            case EntityDamageEvent::CAUSE_ENTITY_ATTACK:
+                $damager = $last_cause_ev->getDamager();
+                $message = strtr($this->lang["death.player"], [
+                    '{COUNT}' => $status,
+                    '{KILLER}' => $damager instanceof Player ? $damager->getDisplayName() : ($damager instanceof Living ? $damager->getName() : $damager->getNameTag()),
+                    '{PLAYER}' => $player->getDisplayName()
+                ]);
+                break;
+            case EntityDamageEvent::CAUSE_PROJECTILE:
+                $damager = $last_cause_ev->getDamager();
+                $message = strtr($this->lang["death.arrow"], [
+                    '{COUNT}' => $status,
+                    '{KILLER}' => $damager instanceof Player ? $damager->getDisplayName() : ($damager instanceof Living ? $damager->getName() : $damager->getNameTag()),
+                    '{PLAYER}' => $player->getDisplayName()
+                ]);
+                break;
+            case EntityDamageEvent::CAUSE_VOID:
+                $message = strtr($this->lang["death.void"], [
+                    '{COUNT}' => $status,
+                    '{PLAYER}' => $player->getDisplayName()
+                ]);
+                break;
+            case EntityDamageEvent::CAUSE_LAVA:
+                $message = strtr($this->lang["death.lava"], [
+                    '{COUNT}' => $status,
+                    '{PLAYER}' => $player->getDisplayName()
+                ]);
+                break;
+            default:
+                $message = strtr($this->lang["game.left"], [
+                    '{COUNT}' => $status,
+                    '{PLAYER}' => $player->getDisplayName()
+                ]);
+                break;
+        }
+
+        $this->getServer()->broadcastMessage($message, $player->getLevel()->getPlayers());
     }
 }

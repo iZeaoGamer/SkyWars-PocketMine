@@ -40,9 +40,8 @@
 
 namespace svile\sw;
 
-
+use pocketmine\block\Block;
 use pocketmine\event\Listener;
-
 use pocketmine\event\entity\EntityDamageByEntityEvent;
 use pocketmine\event\entity\EntityDamageEvent;
 use pocketmine\event\entity\EntityLevelChangeEvent;
@@ -79,528 +78,268 @@ class SWlistener implements Listener {
         $this->plugin = $plugin;
     }
 
-
-    public function onSignChange(SignChangeEvent $ev)
+    public function onSignChange(SignChangeEvent $event) : void
     {
-        if ($ev->getLine(0) != 'sw' || $ev->getPlayer()->isOp() == false)
-            return;
-
-        //Checks if the arena exists
-        $SWname = TextFormat::clean(trim($ev->getLine(1)));
-        if (!array_key_exists($SWname, $this->plugin->arenas)) {
-            $ev->getPlayer()->sendMessage(TextFormat::AQUA . '→' . TextFormat::RED . 'This arena doesn\'t exist, try ' . TextFormat::WHITE . '/sw create');
+        $player = $event->getPlayer();
+        if (!$player->isOp() || $event->getLine(0) !== 'sw') {
             return;
         }
 
-        //Checks if a sign already exists for the arena
-        if (in_array($SWname, $this->plugin->signs)) {
-            $ev->getPlayer()->sendMessage(TextFormat::AQUA . '→' . TextFormat::RED . 'A sign for this arena already exist, try ' . TextFormat::WHITE . '/sw signdelete');
+        $arena = $event->getLine(1);
+        if (!isset($this->plugin->arenas[$arena])) {
+            $player->sendMessage(TextFormat::RED . "This arena doesn't exist, try " . TextFormat::GOLD . "/sw create");
             return;
         }
 
-        //Checks if the sign is placed inside arenas
-        $world = $ev->getPlayer()->getLevel()->getFolderName();
-        foreach ($this->plugin->arenas as $name => $arena) {
-            if ($world == $arena->getWorld()) {
-                $ev->getPlayer()->sendMessage(TextFormat::AQUA . '→' . TextFormat::RED . 'You can\'t place the join sign inside arenas');
+        if (in_array($arena, $this->plugin->signs)) {
+            $player->sendMessage(TextFormat::RED . "A sign for this arena already exist, try " . TextFormat::GOLD . "/sw signdelete");
+            return;
+        }
+
+        $block = $event->getBlock();
+        $level = $block->getLevel();
+        $level_name = $level->getFolderName();
+
+        foreach ($this->plugin->arenas as $name => $arena_instance) {
+            if ($arena_instance->getWorld() === $level_name) {
+                $player->sendMessage(TextFormat::RED . "You can't place the join sign inside arenas.");
                 return;
             }
         }
 
-        //Checks arena spawns
-        if (!$this->plugin->arenas[$SWname]->checkSpawns()) {
-            $ev->getPlayer()->sendMessage(TextFormat::AQUA . '→' . TextFormat::RED . 'Not all the spawns are set in this arena, try ' . TextFormat::WHITE . ' /sw setspawn');
+        if (!$this->plugin->arenas[$arena]->checkSpawns()) {
+            $player->sendMessage(TextFormat::RED . "You haven't configured all the spawn points for this arena, use " . TextFormat::YELLOW . "/sw setspawn");
             return;
         }
 
-        //Saves the sign
-        $this->plugin->setSign($SWname, $ev->getBlock());
-        $ev->getPlayer()->sendMessage(TextFormat::AQUA . '→' . TextFormat::GREEN . 'SW join sign created !');
+        $this->plugin->setSign($arena, $block);
+        $this->plugin->refreshSigns($arena);
 
-        //Sets sign format
-        $ev->setLine(0, $this->plugin->configs['1st_line']);
-        $ev->setLine(1, str_replace('{SWNAME}', $SWname, $this->plugin->configs['2nd_line']));
-        $ev->setLine(2, TextFormat::GREEN . '0' . TextFormat::BOLD . TextFormat::DARK_GRAY . '/' . TextFormat::RESET . TextFormat::GREEN . $this->plugin->arenas[$SWname]->getSlot());
-        $ev->setLine(3, TextFormat::WHITE . 'Tap to join');
-        $this->plugin->refreshSigns(true);
-        unset($SWname, $world);
+        $event->setLine(0, $this->plugin->configs["1st_line"]);
+        $event->setLine(1, str_replace("{SWNAME}", $this->plugin->arenas[$arena]->getName(), $this->plugin->configs["2nd_line"]));
+        $player->sendMessage(TextFormat::GREEN . "Successfully created join sign for '" . TextFormat::YELLOW . $arena . TextFormat::GREEN . "'!");
     }
 
-
-    public function onInteract(PlayerInteractEvent $ev)
+    public function onInteract(PlayerInteractEvent $event) : void
     {
-        if ($ev->getAction() !== PlayerInteractEvent::RIGHT_CLICK_BLOCK)
-            return;
-
-        //In-arena Tap
-        foreach ($this->plugin->arenas as $a) {
-            if ($t = $a->inArena($ev->getPlayer()->getName())) {
-                if ($t == 2)
-                    $ev->setCancelled();
-                if ($a->GAME_STATE == 0)
-                    $ev->setCancelled();
-                return;
-            }
-        }
-
-        //Join sign Tap check
-        $key = $ev->getBlock()->x . ':' . $ev->getBlock()->y . ':' . $ev->getBlock()->z . ':' . $ev->getBlock()->getLevel()->getFolderName();
-        if (array_key_exists($key, $this->plugin->signs))
-            $this->plugin->arenas[$this->plugin->signs[$key]]->join($ev->getPlayer());
-        unset($key);
-    }
-
-
-    public function onLevelChange(EntityLevelChangeEvent $ev)
-    {
-        if ($ev->getEntity() instanceof Player) {
-            foreach ($this->plugin->arenas as $a) {
-                if ($a->inArena($ev->getEntity()->getName())) {
-                    $ev->setCancelled();
-                    break;
+        $block = $event->getBlock();
+        if (($block->getId() === Block::SIGN_POST || $block->getId() === Block::WALL_SIGN) && $event->getAction() === PlayerInteractEvent::RIGHT_CLICK_BLOCK) {
+            $arena = $this->plugin->getArenaFromSign($block);
+            if ($arena !== null) {
+                $player = $event->getPlayer();
+                if ($this->plugin->getPlayerArena($player) === null) {
+                    $this->plugin->arenas[$arena]->join($player);
                 }
             }
         }
     }
 
+    public function onLevelChange(EntityLevelChangeEvent $event) : void
+    {//no fucking clue why this check exists
+        $player = $event->getEntity();
+        if ($player instanceof Player && $this->plugin->getPlayerArena($player) !== null) {
+            $event->setCancelled();
+        }
+    }
 
-    public function onTeleport(EntityTeleportEvent $ev)
+    public function onTeleport(EntityTeleportEvent $event) : void
+    {//no fucking clue why this check exists
+        $player = $event->getEntity();
+        if ($player instanceof Player && $this->plugin->getPlayerArena($player) !== null && $event->getFrom()->distanceSquared($event->getTo()) >= 20) {
+            $event->setCancelled();
+        }
+    }
+
+    public function onDropItem(PlayerDropItemEvent $event) : void
     {
-        if ($ev->getEntity() instanceof Player) {
-            foreach ($this->plugin->arenas as $a) {
-                if ($a->inArena($ev->getEntity()->getName())) {
-                    //Allow near teleport
-                    if ($ev->getFrom()->distanceSquared($ev->getTo()) < 20)
-                        break;
-                    $ev->setCancelled();
-                    break;
-                }
+        $player = $event->getPlayer();
+        $arena = $this->plugin->getPlayerArena($player);
+
+        if ($arena !== null) {
+            $type = $arena->inArena($player);
+            if ($type === SWarena::PLAYER_SPECTATING || ($type === SWarena::PLAYER_PLAYING && !$this->plugin->configs["player.drop.item"])) {
+                $event->setCancelled();
             }
         }
     }
 
-
-    public function onDropItem(PlayerDropItemEvent $ev)
+    public function onPickUp(InventoryPickupItemEvent $event) : void
     {
-        foreach ($this->plugin->arenas as $a) {
-            if (($f = $a->inArena($ev->getPlayer()->getName()))) {
-                if ($f == 2) {
-                    $ev->setCancelled();
-                    break;
-                }
-                if (!$this->plugin->configs['player.drop.item']) {
-                    $ev->setCancelled();
-                    break;
-                }
-                break;
-            }
+        $player = $event->getInventory()->getHolder();
+        if ($player instanceof Player && ($arena = $this->plugin->getPlayerArena($player)) !== null && $arena->inArena($player) === SWarena::PLAYER_SPECTATING) {
+            $event->setCancelled();
         }
     }
 
-
-    public function onPickUp(InventoryPickupItemEvent $ev)
+    public function onItemHeld(PlayerItemHeldEvent $event) : void
     {
-        if (($p = $ev->getInventory()->getHolder()) instanceof Player) {
-            foreach ($this->plugin->arenas as $a) {
-                if ($f = $a->inArena($p->getName())) {
-                    if ($f == 2)
-                        $ev->setCancelled();
-                    break;
-                }
+        $player = $event->getPlayer();
+        if ($player instanceof Player && ($arena = $this->plugin->getPlayerArena($player)) !== null && $arena->inArena($player) === SWarena::PLAYER_SPECTATING) {
+            $item = $event->getItem();
+            if (($item->getId() . ':' . $item->getDamage()) === $this->plugin->configs["spectator.quit.item"]) {
+                $arena->closePlayer($player);
             }
+            $event->setCancelled();
+            $player->getInventory()->setHeldItemIndex(1);
         }
     }
 
-
-    public function onItemHeld(PlayerItemHeldEvent $ev)
+    public function onMove(PlayerMoveEvent $event) : void
     {
-        foreach ($this->plugin->arenas as $a) {
-            if ($f = $a->inArena($ev->getPlayer()->getName())) {
-                if ($f == 2) {
-                    if (($ev->getItem()->getId() . ':' . $ev->getItem()->getDamage()) == $this->plugin->configs['spectator.quit.item'])
-                        $a->closePlayer($ev->getPlayer());
-                    $ev->setCancelled();
-                    $ev->getPlayer()->getInventory()->setHeldItemIndex(1);
-                }
-                break;
-            }
-        }
-    }
+        $from = $event->getFrom();
+        $to = $event->getTo();
 
+        $player = $event->getPlayer();
 
-    public function onMove(PlayerMoveEvent $ev)
-    {
-        foreach ($this->plugin->arenas as $a) {
-            if ($a->inArena($ev->getPlayer()->getName())) {
-                if ($a->GAME_STATE == 0) {
-                    $spawn = $a->getWorld(true, $ev->getPlayer()->getName());
-                    if ($ev->getPlayer()->getPosition()->distanceSquared(new Position($spawn['x'], $spawn['y'], $spawn['z'])) > 4)
-                        $ev->setTo(new Location($spawn['x'], $spawn['y'], $spawn['z'], $spawn['yaw'], $spawn['pitch']));
-                    break;
-                }
-                if ($a->void >= $ev->getPlayer()->getFloorY() && $ev->getPlayer()->isAlive()) {
-                    $event = new EntityDamageEvent($ev->getPlayer(), EntityDamageEvent::CAUSE_VOID, 10);
-                    $ev->getPlayer()->attack($event->getFinalDamage(), $event);
-                    unset($event);
+        if (floor($from->x) !== floor($to->x) || floor($from->z) !== floor($to->z) || floor($from->y) !== floor($from->y)) {//moved a block
+            $arena = $this->plugin->getPlayerArena($player);
+            if ($arena !== null) {
+                if ($arena->GAME_STATE === SWarena::STATE_COUNTDOWN) {
+                    $event->setCancelled();
+                } elseif ($arena->void >= floor($to->y)) {
+                    $player->attack(new EntityDamageEvent($player, EntityDamageEvent::CAUSE_VOID, 100));
                 }
                 return;
             }
-        }
-        //Checks if knockBack is enabled
-        if ($this->plugin->configs['sign.knockBack']) {
-            foreach ($this->plugin->signs as $key => $val) {
-                $ex = explode(':', $key);
-                $pl = $ev->getPlayer();
-                if ($pl->getLevel()->getFolderName() == $ex[3]) {
-                    $x = (int)$pl->getFloorX();
-                    $y = (int)$pl->getFloorY();
-                    $z = (int)$pl->getFloorZ();
-                    $radius = (int)$this->plugin->configs['knockBack.radius.from.sign'];
-                    //If is inside the sign radius, knockBack
-                    if (($x >= ($ex[0] - $radius) && $x <= ($ex[0] + $radius)) && ($z >= ($ex[2] - $radius) && $z <= ($ex[2] + $radius)) && ($y >= ($ex[1] - $radius) && $y <= ($ex[1] + $radius))) {
-                        //If the block is not a sign, break
-                        $block = $pl->getLevel()->getBlock(new Vector3($ex[0], $ex[1], $ex[2]));
-                        if ($block->getId() != 63 && $block->getId() != 68)
-                            break;
-                        //Max $i should be 90 to avoid bugs-lag, yes 90 is a magic number :P
-                        $i = (int)$this->plugin->configs['knockBack.intensity'];
-                        if ($this->plugin->configs['knockBack.follow.sign.direction']) {
-                            //Finds sign yaw
-                            switch ($block->getId()):
-                                case 68:
-                                    switch ($block->getDamage()) {
-                                        case 3:
-                                            $yaw = 0;
-                                            break;
-                                        case 4:
-                                            $yaw = 0x5a;
-                                            break;
-                                        case 2:
-                                            $yaw = 0xb4;
-                                            break;
-                                        case 5:
-                                            $yaw = 0x10e;
-                                            break;
-                                        default:
-                                            $yaw = 0;
-                                            break;
-                                    }
-                                    break;
-                                case 63:
-                                    switch ($block->getDamage()) {
-                                        case 0:
-                                            $yaw = 0;
-                                            break;
-                                        case 1:
-                                            $yaw = 22.5;
-                                            break;
-                                        case 2:
-                                            $yaw = 0x2d;
-                                            break;
-                                        case 3:
-                                            $yaw = 67.5;
-                                            break;
-                                        case 4:
-                                            $yaw = 0x5a;
-                                            break;
-                                        case 5:
-                                            $yaw = 112.5;
-                                            break;
-                                        case 6:
-                                            $yaw = 0x87;
-                                            break;
-                                        case 7:
-                                            $yaw = 157.5;
-                                            break;
-                                        case 8:
-                                            $yaw = 0xb4;
-                                            break;
-                                        case 9:
-                                            $yaw = 202.5;
-                                            break;
-                                        case 10:
-                                            $yaw = 0xe1;
-                                            break;
-                                        case 11:
-                                            $yaw = 247.5;
-                                            break;
-                                        case 12:
-                                            $yaw = 0x10e;
-                                            break;
-                                        case 13:
-                                            $yaw = 292.5;
-                                            break;
-                                        case 14:
-                                            $yaw = 0x13b;
-                                            break;
-                                        case 15:
-                                            $yaw = 337.5;
-                                            break;
-                                        default:
-                                            $yaw = 0;
-                                            break;
-                                    }
-                                    break;
-                                default:
-                                    $yaw = 0;
-                            endswitch;
-                            //knockBack sign direction
-                            $vector = (new Vector3(-sin(deg2rad($yaw)), 0, cos(deg2rad($yaw))))->normalize();
-                            $pl->knockBack($pl, 0, $vector->x, $vector->z, ($i / 0xa));
-                        } else {
-                            //knockBack sign center
-                            $pl->knockBack($pl, 0, ($pl->x - ($block->x + 0.5)), ($pl->z - ($block->z + 0.5)), ($i / 0xa));
-                        }
-                        break;
-                    }
-                    unset($ex, $pl, $x, $y, $z, $radius, $block, $i, $yaw);
-                }
-            }
-        }
-    }
 
-
-    public function onQuit(PlayerQuitEvent $ev)
-    {
-        foreach ($this->plugin->arenas as $a) {
-            if ($a->closePlayer($ev->getPlayer(), true))
-                break;
-        }
-    }
-
-
-    public function onDeath(PlayerDeathEvent $event)
-    {
-        if ($event->getEntity() instanceof Player) {
-            $p = $event->getEntity();
-            foreach ($this->plugin->arenas as $a) {
-                if ($a->closePlayer($p)) {
-                    $event->setDeathMessage('');
-                    $cause = $event->getEntity()->getLastDamageCause()->getCause();
-                    $ev = $event->getEntity()->getLastDamageCause();
-                    $count = '[' . $a->getSlot(true) . '/' . $a->getSlot() . ']';
-
-                    switch ($cause):
-
-
-                        case EntityDamageEvent::CAUSE_ENTITY_ATTACK:
-                            if ($ev instanceof EntityDamageByEntityEvent) {
-                                $d = $ev->getDamager();
-                                if ($d instanceof Player)
-                                    $message = str_replace('{COUNT}', $count, str_replace('{KILLER}', $d->getDisplayName(), str_replace('{PLAYER}', $p->getDisplayName(), $this->plugin->lang['death.player'])));
-                                elseif ($d instanceof \pocketmine\entity\Living)
-                                    $message = str_replace('{COUNT}', $count, str_replace('{KILLER}', $d->getNameTag() !== '' ? $d->getNameTag() : $d->getName(), str_replace('{PLAYER}', $p->getDisplayName(), $this->plugin->lang['death.player'])));
-                                else
-                                    $message = str_replace('{COUNT}', $count, str_replace('{KILLER}', 'Unknown', str_replace('{PLAYER}', $p->getDisplayName(), $this->plugin->lang['death.player'])));
-                            }
-                            break;
-
-
-                        case EntityDamageEvent::CAUSE_PROJECTILE:
-                            if ($ev instanceof EntityDamageByEntityEvent) {
-                                $d = $ev->getDamager();
-                                if ($d instanceof Player)
-                                    $message = str_replace('{COUNT}', $count, str_replace('{KILLER}', $d->getDisplayName(), str_replace('{PLAYER}', $p->getDisplayName(), $this->plugin->lang['death.arrow'])));
-                                elseif ($d instanceof \pocketmine\entity\Living)
-                                    $message = str_replace('{COUNT}', $count, str_replace('{KILLER}', $d->getNameTag() !== '' ? $d->getNameTag() : $d->getName(), str_replace('{PLAYER}', $p->getDisplayName(), $this->plugin->lang['death.arrow'])));
-                                else
-                                    $message = str_replace('{COUNT}', $count, str_replace('{KILLER}', 'Unknown', str_replace('{PLAYER}', $p->getDisplayName(), $this->plugin->lang['death.arrow'])));
-                            }
-                            break;
-
-
-                        case EntityDamageEvent::CAUSE_VOID:
-                            $message = str_replace('{COUNT}', $count, str_replace('{PLAYER}', $p->getDisplayName(), $this->plugin->lang['death.void']));
-                            break;
-
-
-                        case EntityDamageEvent::CAUSE_LAVA:
-                            $message = str_replace('{COUNT}', $count, str_replace('{PLAYER}', $p->getDisplayName(), $this->plugin->lang['death.lava']));
-                            break;
-
-
-                        default:
-                            $message = str_replace('{COUNT}', '[' . $a->getSlot(true) . '/' . $a->getSlot() . ']', str_replace('{PLAYER}', $p->getDisplayName(), $this->plugin->lang['game.left']));
-                            break;
-
-
-                    endswitch;
-
-                    foreach ($this->plugin->getServer()->getLevelByName($a->getWorld())->getPlayers() as $pl)
-                        $pl->sendMessage($message);
-
-                    if (!$this->plugin->configs['drops.on.death'])
-                        $event->setDrops([]);
+            if ($this->plugin->configs["sign.knockBack"]) {
+                foreach ($this->plugin->getNearbySigns($to, $this->plugin->configs["knockBack.radius.from.sign"]) as $pos) {
+                    $player->knockBack($player, 0, $from->x - $pos->x, $from->z - $pos->z, $this->plugin->configs["knockBack.intensity"] / 5);
                     break;
                 }
             }
         }
     }
 
-
-    public function onDamage(EntityDamageEvent $ev)
+    public function onQuit(PlayerQuitEvent $event) : void
     {
-        if ($ev->getEntity() instanceof Player) {
-            $p = $ev->getEntity();
-            foreach ($this->plugin->arenas as $a) {
-                if ($f = $a->inArena($p->getName())) {
-                    if ($f != 1) {
-                        $ev->setCancelled();
-                        break;
+        $player = $event->getPlayer();
+        $arena = $this->plugin->getPlayerArena($player);
+
+        if ($arena !== null) {
+            $arena->closePlayer($player);
+        }
+    }
+
+    public function onDeath(PlayerDeathEvent $event) : void
+    {
+        $player = $event->getPlayer();
+        $arena = $this->plugin->getPlayerArena($player);
+
+        if ($arena !== null) {
+            $this->plugin->sendDeathMessage($player);
+            $arena->closePlayer($player);
+            $event->setDeathMessage("");
+
+            if (!$this->plugin->configs["drops.on.death"]) {
+                $event->setDrops([]);
+            }
+        }
+    }
+
+    /**
+     * @param EntityDamageEvent $event
+     * @priority HIGH
+     * @ignoreCancelled true
+     */
+    public function onDamage(EntityDamageEvent $event) : void
+    {
+        $entity = $event->getEntity();
+        if ($entity instanceof Player) {
+            $arena = $this->plugin->getPlayerArena($entity);
+            if ($arena !== null) {
+                if (
+                    $arena->inArena($entity) !== SWarena::PLAYER_PLAYING ||
+                    $arena->GAME_STATE === SWarena::STATE_COUNTDOWN ||
+                    $arena->GAME_STATE === SWarena::STATE_NOPVP ||
+                    in_array($event->getCause(), $this->plugin->configs["damage.cancelled.causes"])
+                ) {
+                    $event->setCancelled();
+                    return;
+                }
+
+                if ($event instanceof EntityDamageByEntityEvent && ($damager = $event->getDamager()) instanceof Player) {
+                    if ($arena->inArena($damager) !== SWarena::PLAYER_PLAYING) {
+                        $event->setCancelled();
+                        return;
                     }
-                    if ($ev instanceof EntityDamageByEntityEvent && ($d = $ev->getDamager()) instanceof Player) {
-                        if (($f = $a->inArena($d->getName())) == 2 || $f == 0) {
-                            $ev->setCancelled();
-                            break;
+                }
+
+                if ($this->plugin->configs["death.spectator"]) {
+                    if ($entity->getHealth() <= $event->getFinalDamage()) {
+                        $event->setCancelled();
+                        $this->plugin->sendDeathMessage($entity);
+
+                        if ($this->plugin->configs["drops.on.death"]) {
+                            $entity->getInventory()->dropContents($entity->getLevel(), $entity->asVector3());
                         }
+
+                        $arena->closePlayer($entity, false, true);
                     }
-                    $cause = (int)$ev->getCause();
-                    if (in_array($cause, $this->plugin->configs['damage.cancelled.causes'])) {
-                        $ev->setCancelled();
-                        break;
-                    }
-                    if ($a->GAME_STATE == 0 || $a->GAME_STATE == 2) {
-                        $ev->setCancelled();
-                        break;
-                    }
-
-                    //SPECTATORS
-                    $spectate = (bool)$this->plugin->configs['death.spectator'];
-                    if ($spectate && !$ev->isCancelled()) {
-                        if (($p->getHealth() - $ev->getFinalDamage()) <= 0) {
-                            $ev->setCancelled();
-                            //FAKE KILL PLAYER MSG
-                            $count = '[' . ($a->getSlot(true) - 1) . '/' . $a->getSlot() . ']';
-
-                            switch ($cause):
-
-
-                                case EntityDamageEvent::CAUSE_ENTITY_ATTACK:
-                                    if ($ev instanceof EntityDamageByEntityEvent) {
-                                        $d = $ev->getDamager();
-                                        if ($d instanceof Player)
-                                            $message = str_replace('{COUNT}', $count, str_replace('{KILLER}', $d->getDisplayName(), str_replace('{PLAYER}', $p->getDisplayName(), $this->plugin->lang['death.player'])));
-                                        elseif ($d instanceof \pocketmine\entity\Living)
-                                            $message = str_replace('{COUNT}', $count, str_replace('{KILLER}', $d->getNameTag() !== '' ? $d->getNameTag() : $d->getName(), str_replace('{PLAYER}', $p->getDisplayName(), $this->plugin->lang['death.player'])));
-                                        else
-                                            $message = str_replace('{COUNT}', $count, str_replace('{KILLER}', 'Unknown', str_replace('{PLAYER}', $p->getDisplayName(), $this->plugin->lang['death.player'])));
-                                    }
-                                    break;
-
-
-                                case EntityDamageEvent::CAUSE_PROJECTILE:
-                                    if ($ev instanceof EntityDamageByEntityEvent) {
-                                        $d = $ev->getDamager();
-                                        if ($d instanceof Player)
-                                            $message = str_replace('{COUNT}', $count, str_replace('{KILLER}', $d->getDisplayName(), str_replace('{PLAYER}', $p->getDisplayName(), $this->plugin->lang['death.arrow'])));
-                                        elseif ($d instanceof \pocketmine\entity\Living)
-                                            $message = str_replace('{COUNT}', $count, str_replace('{KILLER}', $d->getNameTag() !== '' ? $d->getNameTag() : $d->getName(), str_replace('{PLAYER}', $p->getDisplayName(), $this->plugin->lang['death.arrow'])));
-                                        else
-                                            $message = str_replace('{COUNT}', $count, str_replace('{KILLER}', 'Unknown', str_replace('{PLAYER}', $p->getDisplayName(), $this->plugin->lang['death.arrow'])));
-                                    }
-                                    break;
-
-
-                                case EntityDamageEvent::CAUSE_VOID:
-                                    $message = str_replace('{COUNT}', $count, str_replace('{PLAYER}', $p->getDisplayName(), $this->plugin->lang['death.void']));
-                                    break;
-
-
-                                case EntityDamageEvent::CAUSE_LAVA:
-                                    $message = str_replace('{COUNT}', $count, str_replace('{PLAYER}', $p->getDisplayName(), $this->plugin->lang['death.lava']));
-                                    break;
-
-
-                                default:
-                                    $message = str_replace('{COUNT}', '[' . $a->getSlot(true) . '/' . $a->getSlot() . ']', str_replace('{PLAYER}', $p->getDisplayName(), $this->plugin->lang['game.left']));
-                                    break;
-
-
-                            endswitch;
-
-                            foreach ($p->getLevel()->getPlayers() as $pl)
-                                $pl->sendMessage($message);
-
-                            //DROPS
-                            if ($this->plugin->configs['drops.on.death']) {
-                                foreach ($p->getDrops() as $item) {
-                                    $p->getLevel()->dropItem($p, $item);
-                                }
-                            }
-
-                            //CLOSE
-                            $a->closePlayer($p, false, true);
-                        }
-                    }
-                    break;
                 }
             }
         }
     }
 
-
-    public function onRespawn(PlayerRespawnEvent $ev)
+    public function onRespawn(PlayerRespawnEvent $event) : void
     {
-        if ($this->plugin->configs['always.spawn.in.defaultLevel'])
-            $ev->setRespawnPosition($this->plugin->getServer()->getDefaultLevel()->getSpawnLocation());
-        //Removes player things
-        if ($this->plugin->configs['clear.inventory.on.respawn&join'])
-            $ev->getPlayer()->getInventory()->clearAll();
-        if ($this->plugin->configs['clear.effects.on.respawn&join'])
-            $ev->getPlayer()->removeAllEffects();
+        if ($this->plugin->configs["always.spawn.in.defaultLevel"]) {
+            $event->setRespawnPosition($this->plugin->getServer()->getDefaultLevel()->getSpawnLocation());
+        }
+
+        if ($this->plugin->configs["clear.inventory.on.respawn&join"]) {
+            $event->getPlayer()->getInventory()->clearAll();
+        }
+
+        if ($this->plugin->configs["clear.effects.on.respawn&join"]) {
+            $event->getPlayer()->removeAllEffects();
+        }
     }
 
-
-    public function onBreak(BlockBreakEvent $ev)
+    public function onBreak(BlockBreakEvent $event) : void
     {
-        foreach ($this->plugin->arenas as $a) {
-            if ($t = $a->inArena($ev->getPlayer()->getName())) {
-                if ($t == 2)
-                    $ev->setCancelled();
-                if ($a->GAME_STATE == 0)
-                    $ev->setCancelled();
-                break;
+        $player = $event->getPlayer();
+        $arena = $this->plugin->getPlayerArena($player);
+
+        if ($arena !== null && $arena->inArena($player) !== SWarena::PLAYER_PLAYING) {
+            $event->setCancelled();
+        }
+
+        $block = $event->getBlock();
+        $sign = $this->plugin->getArenaFromSign($block);
+        if ($sign !== null) {
+            if (!$player->isOp()) {
+                $event->setCancelled();
+                return;
             }
+
+            $this->plugin->deleteSign($block);
+            $player->sendMessage(TextFormat::GREEN . "Removed join sign for arena '" . TextFormat::YELLOW . $arena . TextFormat::GREEN . "'!");
         }
-        if (!$ev->getPlayer()->isOp())
-            return;
-        $key = (($ev->getBlock()->getX() + 0) . ':' . ($ev->getBlock()->getY() + 0) . ':' . ($ev->getBlock()->getZ() + 0) . ':' . $ev->getPlayer()->getLevel()->getFolderName());
-        if (isset($this->plugin->signs[$key])) {
-            $this->plugin->arenas[$this->plugin->signs[$key]]->stop(true);
-            $ev->getPlayer()->sendMessage(TextFormat::AQUA . '→' . TextFormat::GREEN . 'Arena reloaded !');
-            $this->plugin->deleteSign($ev->getBlock());
-            $ev->getPlayer()->sendMessage(TextFormat::AQUA . '→' . TextFormat::GREEN . 'SW join sign deleted !');
-        }
-        unset($key);
     }
 
-
-    public function onPlace(BlockPlaceEvent $ev)
+    public function onPlace(BlockPlaceEvent $event) : void
     {
-        foreach ($this->plugin->arenas as $a) {
-            if ($t = $a->inArena($ev->getPlayer()->getName())) {
-                if ($t == 2)
-                    $ev->setCancelled();
-                if ($a->GAME_STATE == 0)
-                    $ev->setCancelled();
-                break;
-            }
+        $player = $event->getPlayer();
+        $arena = $this->plugin->getPlayerArena($player);
+
+        if ($arena !== null && $arena->inArena($player) !== SWarena::PLAYER_PLAYING) {
+            $event->setCancelled();
         }
     }
 
 
-    public function onCommand(PlayerCommandPreprocessEvent $ev)
+    public function onCommand(PlayerCommandPreprocessEvent $event) : void
     {
-        $command = strtolower($ev->getMessage());
-        if ($command{0} == '/') {
-            $command = explode(' ', $command)[0];
-            if ($this->plugin->inArena($ev->getPlayer()->getName())) {
-                if (in_array($command, $this->plugin->configs['banned.commands.while.in.game'])) {
-                    $ev->getPlayer()->sendMessage($this->plugin->lang['banned.command.msg']);
-                    $ev->setCancelled();
+        $command = $event->getMessage();
+        if ($command{0} === "/") {
+            $player = $event->getPlayer();
+            if ($this->plugin->getPlayerArena($player) !== null) {
+                if (in_array(strtolower(explode(" ", $command, 2)[0]), $this->plugin->configs["banned.commands.while.in.game"])) {
+                    $player->sendMessage($this->plugin->lang["banned.command.msg"]);
+                    $event->setCancelled();
                 }
             }
         }
-        unset($command);
     }
 }

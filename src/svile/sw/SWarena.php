@@ -30,61 +30,68 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- *
- * DONORS LIST :
- * - Ahmet
- * - Jinsong Liu
- * - no one
- *
  */
 
 namespace svile\sw;
 
-
-use pocketmine\Player;
-//use pocketmine\network\protocol\AdventureSettingsPacket;
-//use pocketmine\network\protocol\ContainerSetContentPacket;
-//use pocketmine\network\protocol\SetPlayerGameTypePacket;
-
 use pocketmine\block\Block;
-use pocketmine\level\Position;
-
-use pocketmine\utils\Config;
-use pocketmine\utils\TextFormat;
-
-use pocketmine\tile\Chest;
 use pocketmine\item\Item;
+use pocketmine\level\Position;
+use pocketmine\level\sound\{ClickSound, EndermanTeleportSound, Sound};
+use pocketmine\Player;
+use pocketmine\tile\Chest;
+use pocketmine\utils\{Config, TextFormat};
 
+class SWarena {
 
-final class SWarena
-{
+    //Player states
+    const PLAYER_NOT_FOUND = 0;
+    const PLAYER_PLAYING = 1;
+    const PLAYER_SPECTATING = 2;
+
+    //Game states
+    const STATE_COUNTDOWN = 0;
+    const STATE_RUNNING = 1;
+    const STATE_NOPVP = 2;
+
+    /** @var PlayerSnapshot[] */
+    private $playerSnapshots = [];//store player's inventory, health etc pre-match so they don't lose it once the match ends
+
     /** @var int */
-    public $GAME_STATE = 0;//0 -> GAME_COUNTDOWN | 1 -> GAME_RUNNING | 2 -> no-pvp
+    public $GAME_STATE = SWarena::STATE_COUNTDOWN;
+
     /** @var SWmain */
-    private $pg;
+    private $plugin;
 
     /** @var string */
     private $SWname;
+
     /** @var int */
     private $slot;
+
     /** @var string */
     private $world;
+
     /** @var int */
     private $countdown = 60;//Seconds to wait before the game starts
+
     /** @var int */
     private $maxtime = 300;//Max seconds after the countdown, if go over this, the game will finish
+
     /** @var int */
     public $void = 0;//This is used to check "fake void" to avoid fall (stunck in air) bug
+
     /** @var array */
     private $spawns = [];//Players spawns
 
     /** @var int */
     private $time = 0;//Seconds from the last reload | GAME_STATE
-    /** @var array */
-    private $players = [];
-    /** @var array */
-    private $spectators = [];
 
+    /** @var string[] */
+    private $players = [];//[rawUUID] => int(player state)
+
+    /** @var array[] */
+    private $playerSpawns = [];
 
     /**
      * @param SWmain $plugin
@@ -95,23 +102,25 @@ final class SWarena
      * @param int $maxtime
      * @param int $void
      */
-    public function __construct(SWmain $plugin, $SWname = 'sw', $slot = 0, $world = 'world', $countdown = 60, $maxtime = 300, $void = 0)
+    public function __construct(SWmain $plugin, string $SWname = "sw", int $slot = 0, string $world = "world", int $countdown = 60, int $maxtime = 300, int $void = 0)
     {
-        $this->pg = $plugin;
+        $this->plugin = $plugin;
         $this->SWname = $SWname;
-        $this->slot = ($slot + 0);
+        $this->slot = $slot;
         $this->world = $world;
-        $this->countdown = ($countdown + 0);
-        $this->maxtime = ($maxtime + 0);
+        $this->countdown = $countdown;
+        $this->maxtime = $maxtime;
         $this->void = $void;
+
         if (!$this->reload($error)) {
-            $this->pg->getLogger()->info(TextFormat::RED . 'An error occured while reloading the arena: ' . TextFormat::WHITE . $this->SWname);
-            $this->pg->getLogger()->info($error);
-            $this->pg->getServer()->getPluginManager()->disablePlugin($this->pg);
+            $logger = $this->plugin->getLogger();
+            $logger->error("An error occured while reloading the arena: " . TextFormat::YELLOW . $this->SWname);
+            $logger->error($error);
+            $this->plugin->getServer()->getPluginManager()->disablePlugin($this->plugin);
         }
     }
 
-    public function getName() : string
+    final public function getName() : string
     {
         return $this->SWname;
     }
@@ -122,338 +131,340 @@ final class SWarena
     private function reload(&$error = null) : bool
     {
         //Map reset
-        if (!is_file($file = $this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/' . $this->world . '.tar') && !is_file($file = $this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/' . $this->world . '.tar.gz')) {
+        if (!is_file($file = $this->plugin->getDataFolder() . "arenas/" . $this->SWname . "/" . $this->world . ".tar") && !is_file($file = $this->plugin->getDataFolder() . "arenas/" . $this->SWname . "/" . $this->world . ".tar.gz")) {
             $error = "Cannot find world backup file $file";
             return false;
         }
 
-        if ($this->pg->getServer()->isLevelLoaded($this->world)) {
-            $this->pg->getServer()->unloadLevel($this->pg->getServer()->getLevelByName($this->world));
+        $server = $this->plugin->getServer();
+
+        if ($server->isLevelLoaded($this->world)) {
+            $server->unloadLevel($server->getLevelByName($this->world));
         }
 
-        if ($this->pg->configs['world.reset.from.tar']) {
+        if ($this->plugin->configs["world.reset.from.tar"]) {
             $tar = new \PharData($file);
-            $tar->extractTo($this->pg->getServer()->getDataPath() . 'worlds/' . $this->world, null, true);
+            $tar->extractTo($server->getDataPath() . "worlds/" . $this->world, null, true);
         }
 
-        $this->pg->getServer()->loadLevel($this->world);
-        $this->pg->getServer()->getLevelByName($this->world)->setAutoSave(false);
+        $server->loadLevel($this->world);
+        $server->getLevelByName($this->world)->setAutoSave(false);
 
-        $config = new Config($this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/settings.yml', Config::YAML, [//TODO: put descriptions
-            'name' => $this->SWname,
-            'slot' => $this->slot,
-            'world' => $this->world,
-            'countdown' => $this->countdown,
-            'maxGameTime' => $this->maxtime,
-            'void_Y' => $this->void,
-            'spawns' => []
+        $config = new Config($this->plugin->getDataFolder() . "arenas/" . $this->SWname . "/settings.yml", Config::YAML, [//TODO: put descriptions
+            "name" => $this->SWname,
+            "slot" => $this->slot,
+            "world" => $this->world,
+            "countdown" => $this->countdown,
+            "maxGameTime" => $this->maxtime,
+            "void_Y" => $this->void,
+            "spawns" => []
         ]);
 
-        $this->SWname = $config->get('name');
-        $this->slot = (int) $config->get('slot');
-        $this->world = $config->get('world');
-        $this->countdown = (int) $config->get('countdown');
-        $this->maxtime = (int) $config->get('maxGameTime');
-        $this->spawns = $config->get('spawns');
-        $this->void = (int) $config->get('void_Y');
+        $this->SWname = $config->get("name");
+        $this->slot = (int) $config->get("slot");
+        $this->world = $config->get("world");
+        $this->countdown = (int) $config->get("countdown");
+        $this->maxtime = (int) $config->get("maxGameTime");
+        $this->spawns = $config->get("spawns");
+        $this->void = (int) $config->get("void_Y");
 
         $this->players = [];
-        $this->spectators = [];
         $this->time = 0;
-        $this->GAME_STATE = 0;
+        $this->GAME_STATE = SWarena::STATE_COUNTDOWN;
 
         //Reset Sign
-        $this->pg->refreshSigns($this->SWname, 0, $this->slot);
+        $this->plugin->refreshSigns($this->SWname, 0, $this->slot);
         return true;
     }
 
-
-    /**
-     * @return string
-     */
-    public function getState()
+    public function getState() : string
     {
-        $state = TextFormat::WHITE . 'Tap to join';
-        switch ($this->GAME_STATE) {
-            case 1:
-            case 2:
-                $state = TextFormat::RED . TextFormat::BOLD . 'Running';
-                break;
-            case 0:
-                if (count($this->players) >= $this->slot)
-                    $state = TextFormat::RED . TextFormat::BOLD . 'Running';
-                break;
+        if ($this->GAME_STATE !== SWarena::STATE_COUNTDOWN || count(array_keys($this->players, SWarena::PLAYER_PLAYING, true)) >= $this->slot) {
+            return TextFormat::RED . TextFormat::BOLD . "Running";
         }
-        return $state;
+
+        return TextFormat::WHITE . "Tap to join";
     }
 
+    public function getSlot(bool $players = false) : int
+    {
+        return $players ? count($this->players) : $this->slot;
+    }
+
+    public function getWorld() : string
+    {
+        return $this->world;
+    }
 
     /**
-     * @param bool $players
+     * @param Player $player
      * @return int
      */
-    public function getSlot($players = false)
+    public function inArena(Player $player) : int
     {
-        if ($players)
-            return count($this->players);
-        return $this->slot;
+        return $this->players[$player->getRawUniqueId()] ?? SWarena::PLAYER_NOT_FOUND;
     }
 
-
-    /**
-     * @param bool $spawn
-     * @param string $playerName
-     * @return string|array
-     */
-    public function getWorld($spawn = false, $playerName = '')
+    public function setPlayerState(Player $player, ?int $state) : void
     {
-        if ($spawn && array_key_exists($playerName, $this->players))
-            return $this->players[$playerName];
-        else
-            return $this->world;
+        if ($state === null || $state === SWarena::PLAYER_NOT_FOUND) {
+            unset($this->players[$player->getRawUniqueId()]);
+            return;
+        }
+
+        $this->players[$player->getRawUniqueId()] = $state;
     }
-
-
-    /**
-     * @param string $playerName
-     * @return int
-     */
-    public function inArena($playerName = '')
-    {
-        if (array_key_exists($playerName, $this->players))
-            return 1;
-        if (in_array($playerName, $this->spectators))
-            return 2;
-        return 0;
-    }
-
 
     /**
      * @param Player $player
      * @param int $slot
      * @return bool
      */
-    public function setSpawn(Player $player, $slot = 1)
+    public function setSpawn(Player $player, int $slot = 1) : bool
     {
         if ($slot > $this->slot) {
-            $player->sendMessage(TextFormat::AQUA . '→' . TextFormat::RED . 'This arena have only got ' . TextFormat::WHITE . $this->slot . TextFormat::RED . ' slots');
+            $player->sendMessage(TextFormat::RED . "This arena have only got " . TextFormat::WHITE . $this->slot . TextFormat::RED . " slots");
             return false;
         }
-        $config = new Config($this->pg->getDataFolder() . 'arenas/' . $this->SWname . '/settings.yml', Config::YAML);
 
-        if (empty($config->get('spawns', []))) {
-            $keys = [];
-            for ($i = $this->slot; $i >= 1; $i--) {
-                $keys[] = $i;
-            }
-            unset($i);
-            $config->set('spawns', array_fill_keys(array_reverse($keys), [
-                'x' => 'n.a',
-                'y' => 'n.a',
-                'z' => 'n.a',
-                'yaw' => 'n.a',
-                'pitch' => 'n.a'
+        $config = new Config($this->plugin->getDataFolder() . "arenas/" . $this->SWname . "/settings.yml", Config::YAML);
+
+        if (empty($config->get("spawns", []))) {
+            $config->set("spawns", array_fill(1, $this->slots, [
+                "x" => "n.a",
+                "y" => "n.a",
+                "z" => "n.a",
+                "yaw" => "n.a",
+                "pitch" => "n.a"
             ]));
-            unset($keys);
         }
-        $s = $config->get('spawns');
+        $s = $config->get("spawns");
         $s[$slot] = [
-            'x' => floor($player->x),
-            'y' => floor($player->y),
-            'z' => floor($player->z),
-            'yaw' => $player->yaw,
-            'pitch' => $player->pitch
+            "x" => floor($player->x),
+            "y" => floor($player->y),
+            "z" => floor($player->z),
+            "yaw" => $player->yaw,
+            "pitch" => $player->pitch
         ];
-        $config->set('spawns', $s);
-        $this->spawns = $s;
-        unset($s);
-        if (!$config->save() || count($this->spawns) != $this->slot) {
-            $player->sendMessage(TextFormat::AQUA . '→' . TextFormat::RED . 'An error occured setting the spawn, pls contact the developer');
-            return false;
-        } else
-            return true;
-    }
 
+        $config->set("spawns", $s);
+        $this->spawns = $s;
+
+        if (!$config->save() || count($this->spawns) !== $this->slot) {
+            $player->sendMessage(TextFormat::RED . "An error occured setting the spawn, please contact the developer.");
+            return false;
+        }
+
+        return true;
+    }
 
     /**
      * @return bool
      */
-    public function checkSpawns()
+    public function checkSpawns() : bool
     {
-        if (empty($this->spawns))
+        if (empty($this->spawns)) {
             return false;
+        }
+
         foreach ($this->spawns as $key => $val) {
-            if (!is_array($val) || count($val) != 5 || $this->slot != count($this->spawns) || in_array('n.a', $val, true))
+            if (!is_array($val) || count($val) !== 5 || $this->slot !== count($this->spawns) || in_array("n.a", $val, true)) {
                 return false;
+            }
         }
         return true;
     }
 
-
-    /** VOID */
-    private function refillChests()
+    private function refillChests() : void
     {
-        $contents = $this->pg->getChestContents();
-        foreach ($this->pg->getServer()->getLevelByName($this->world)->getTiles() as $tile) {
+        $contents = $this->plugin->getChestContents();
+
+        foreach ($this->plugin->getServer()->getLevelByName($this->world)->getTiles() as $tile) {
             if ($tile instanceof Chest) {
 
                 $inventory = $tile->getInventory();
-                $inventory->clearAll();
+                $inventory->clearAll(false);
 
                 if (empty($contents)) {
-                    $contents = $this->pg->getChestContents();
+                    $contents = $this->plugin->getChestContents();
                 }
 
                 foreach (array_shift($contents) as $key => $val) {
-                    $inventory->setItem($key, Item::get($val[0], 0, $val[1]));
+                    $inventory->setItem($key, Item::get($val[0], 0, $val[1]), false);
                 }
-            }
-        }
-        unset($contents, $tile);
-    }
 
-
-    /** VOID */
-    public function tick()
-    {
-        if ($this->GAME_STATE == 0 && count($this->players) < ($this->pg->configs['needed.players.to.run.countdown'] + 0))
-            return;
-        $this->time++;
-
-        //START and STOP
-        if ($this->GAME_STATE == 0 && $this->pg->configs['start.when.full'] && $this->slot <= count($this->players)) {
-            $this->start();
-            return;
-        }
-        if ($this->GAME_STATE > 0 && 2 > count($this->players)) {
-            $this->stop();
-            return;
-        }
-        if ($this->GAME_STATE == 0 && $this->time >= $this->countdown) {
-            $this->start();
-            return;
-        }
-        if ($this->GAME_STATE > 0 && $this->time >= $this->maxtime) {
-            $this->stop();
-            return;
-        }
-
-        //Chest refill
-        if ($this->GAME_STATE > 0 && $this->pg->configs['chest.refill'] && ($this->time % $this->pg->configs['chest.refill.rate']) == 0) {
-            $this->refillChests();
-            foreach ($this->pg->getServer()->getLevelByName($this->world)->getPlayers() as $p) {
-                $p->sendMessage($this->pg->lang['game.chest.refill']);
-            }
-            return;
-        }
-
-        //PvP - updates
-        if ($this->GAME_STATE == 2) {
-            if ($this->time <= $this->pg->configs['no.pvp.countdown'])
-                foreach ($this->pg->getServer()->getLevelByName($this->world)->getPlayers() as $p)
-                    $p->sendPopup(str_replace('{COUNT}', $this->pg->configs['no.pvp.countdown'] - $this->time + 1, $this->pg->lang['no.pvp.countdown']));
-            else
-                $this->GAME_STATE = 1;
-            return;
-        }
-
-        //Chat and Popup messanges
-        if ($this->GAME_STATE == 0 && $this->time % 30 == 0) {
-            foreach ($this->pg->getServer()->getLevelByName($this->world)->getPlayers() as $p) {
-                $p->sendMessage(str_replace('{N}', date('i:s', ($this->countdown - $this->time)), $this->pg->lang['chat.countdown']));
-            }
-        }
-        if ($this->GAME_STATE == 0) {
-            foreach ($this->pg->getServer()->getLevelByName($this->world)->getPlayers() as $p) {
-                $p->sendPopup(str_replace('{N}', date('i:s', ($this->countdown - $this->time)), $this->pg->lang['popup.countdown']));
-                if (($this->countdown - $this->time) <= 10)
-                    $p->getLevel()->addSound((new \pocketmine\level\sound\ClickSound($p)), [$p]);
+                $inventory->sendContents($inventory->getViewers());
             }
         }
     }
 
-
-    /**
-     * @param Player $player
-     * @param bool $msg
-     * @return bool
-     */
-    public function join(Player $player, $msg = true)
+    public function tick() : void
     {
-        if ($this->GAME_STATE > 0) {
-            if ($msg)
-                $player->sendMessage($this->pg->lang['sign.game.running']);
+        $config = $this->plugin->configs;
+
+        switch ($this->GAME_STATE) {
+            case SWarena::STATE_COUNTDOWN:
+                $player_cnt = count($this->players);
+
+                if ($player_cnt < $config["needed.players.to.run.countdown"]) {
+                    return;
+                }
+
+                if (($config["start.when.full"] && $this->slot <= $player_cnt) || $this->time >= $this->countdown) {
+                    $this->start();
+                    return;
+                }
+
+                if ($this->time % 30 === 0) {
+                    $this->sendMessage(str_replace("{N}", date("i:s", ($this->countdown - $this->time)), $this->plugin->lang["chat.countdown"]));
+                }
+
+                $this->sendPopup(str_replace("{N}", date("i:s", ($this->countdown - $this->time)), $this->plugin->lang["popup.countdown"]));
+                $this->sendSound(ClickSound::class);
+                break;
+            case SWarena::STATE_RUNNING:
+                $player_cnt = count(array_keys($this->players, SWarena::PLAYER_PLAYING, true));
+                if ($player_cnt < 2 || $this->time >= $this->maxtime) {
+                    $this->stop();
+                    return;
+                }
+
+                if ($config["chest.refill"] && ($this->time % $config["chest.refill.rate"] === 0)) {
+                    $this->sendMessage($this->plugin->lang["game.chest.refill"]);
+                }
+                break;
+            case SWarena::STATE_NOPVP:
+                if ($this->time <= $config["no.pvp.countdown"]) {
+                    $this->sendPopup(str_replace("{COUNT}", $config["no.pvp.countdown"] - $this->time + 1, $this->plugin->lang["no.pvp.countdown"]));
+                } else {
+                    $this->GAME_STATE = SWarena::STATE_RUNNING;
+                }
+                break;
+        }
+
+        ++$this->time;
+    }
+
+    public function join(Player $player, bool $sendErrorMessage = true) : bool
+    {
+        if ($this->GAME_STATE !== SWarena::STATE_COUNTDOWN) {
+            if ($sendErrorMessage) {
+                $player->sendMessage($this->plugin->lang["sign.game.running"]);
+            }
             return false;
         }
+
         if (count($this->players) >= $this->slot || empty($this->spawns)) {
-            if ($msg)
-                $player->sendMessage($this->pg->lang['sign.game.full']);
+            if ($sendErrorMessage) {
+                $player->sendMessage($this->plugin->lang["sign.game.full"]);
+            }
             return false;
         }
+
         //Sound
-        $player->getLevel()->addSound((new \pocketmine\level\sound\EndermanTeleportSound($player)), [$player]);
+        $player->getLevel()->addSound(new EndermanTeleportSound($player), [$player]);
 
         //Removes player things
         $player->setGamemode(Player::SURVIVAL);
-        if ($this->pg->configs['clear.inventory.on.arena.join'])
-            $player->getInventory()->clearAll();
-        if ($this->pg->configs['clear.effects.on.arena.join'])
-            $player->removeAllEffects();
-        $player->setMaxHealth($this->pg->configs['join.max.health']);
-        $player->setMaxHealth($player->getMaxHealth());
+        $this->playerSnapshots[$player->getId()] = new PlayerSnapshot($player, $this->plugin->configs["clear.inventory.on.arena.join"], $this->plugin->configs["clear.effects.on.arena.join"]);
+        $player->setMaxHealth($this->plugin->configs["join.max.health"]);
+
         if ($player->getAttributeMap() != null) {//just to be really sure
-            if (($health = $this->pg->configs['join.health']) > $player->getMaxHealth() || $health < 1)
+            if (($health = $this->plugin->configs["join.health"]) > $player->getMaxHealth() || $health < 1) {
                 $health = $player->getMaxHealth();
+            }
             $player->setHealth($health);
             $player->setFood(20);
         }
-        $this->pg->getServer()->loadLevel($this->world);
-        $level = $this->pg->getServer()->getLevelByName($this->world);
+
+        $server = $this->plugin->getServer();
+        $server->loadLevel($this->world);
+        $level = $server->getLevelByName($this->world);
+
         $tmp = array_shift($this->spawns);
-        $player->teleport(new Position($tmp['x'] + 0.5, $tmp['y'], $tmp['z'] + 0.5, $level), $tmp['yaw'], $tmp['pitch']);
-        $this->players[$player->getName()] = $tmp;
-        foreach ($level->getPlayers() as $p) {
-            $p->sendMessage(str_replace('{COUNT}', '[' . $this->getSlot(true) . '/' . $this->slot . ']', str_replace('{PLAYER}', $player->getName(), $this->pg->lang['game.join'])));
-        }
-        $this->pg->refreshSigns($this->SWname, $this->getSlot(true), $this->slot, $this->getState());
+        $player->teleport(new Position($tmp["x"] + 0.5, $tmp["y"], $tmp["z"] + 0.5, $level), $tmp["yaw"], $tmp["pitch"]);
+        $this->playerSpawns[$player->getRawUniqueId()] = $tmp;
+
+        $this->setPlayerState($player, SWarena::PLAYER_PLAYING);
+        $this->plugin->setPlayerArena($player, $this->getName());
+        $player->setImmobile(true);
+
+        $this->sendMessage(str_replace("{COUNT}", "[" . $this->getSlot(true) . "/" . $this->slot . "]", str_replace("{PLAYER}", $player->getName(), $this->plugin->lang["game.join"])));
+        $this->plugin->refreshSigns($this->SWname, $this->getSlot(true), $this->slot, $this->getState());
         return true;
     }
 
+    public function getPlayers(?int $player_state = null) : array
+    {
+        return array_intersect_key($this->plugin->getServer()->getOnlinePlayers(), $player_state === null ? $this->players : array_intersect($this->players, [$player_state]));
+    }
+
+    public function sendMessage(string $message) : void
+    {
+        $this->plugin->getServer()->broadcastMessage($message, $this->getPlayers());
+    }
+
+    public function sendPopup(string $message) : void
+    {
+        $this->plugin->getServer()->broadcastPopup($message, $this->getPlayers());
+    }
+
+    public function sendSound(string $sound_class) : void
+    {
+        if (!is_subclass_of($sound_class, Sound::class, true)) {
+            throw new \InvalidArgumentException($sound_class . " must be an instance of " . Sound::class);
+        }
+
+        foreach ($this->getPlayers() as $player) {
+            $player->getLevel()->addSound(new $sound_class($player), [$player]);
+        }
+    }
 
     /**
-     * @param string $playerName
+     * @param Player $player
      * @param bool $left
      * @param bool $spectate
      * @return bool
      */
-    private function quit($playerName, $left = false, $spectate = false)
+    private function quit(Player $player, bool $left = false, bool $spectate = false) : bool
     {
-        if (in_array($playerName, $this->spectators)) {
-            unset($this->spectators[array_search($playerName, $this->spectators)]);
-            foreach ($this->players as $name => $spawn) {
-                if ((($p = $this->pg->getServer()->getPlayer($name)) instanceof Player) && (($s = $this->pg->getServer()->getPlayer($playerName)) instanceof Player))
-                    $p->showPlayer($s);
+        $current_state = $this->inArena($player);
+        if ($current_state === SWarena::PLAYER_NOT_FOUND) {
+            return false;
+        }
+
+        $this->setPlayerState($player, null);
+
+        if ($this->GAME_STATE === SWarena::STATE_COUNTDOWN) {
+            $player->setImmobile(false);
+            $this->spawns[] = $this->playerSpawns[$uuid = $player->getRawUniqueId()];
+            unset($this->playerSpawns[$uuid]);
+        }
+
+        if ($current_state === SWarena::PLAYER_SPECTATING) {
+            foreach ($this->getPlayers() as $pl) {
+                $pl->showPlayer($player);
             }
+
+            $this->setPlayerState($player, null);
             return true;
         }
-        if (!array_key_exists($playerName, $this->players))
-            return false;
-        if ($this->GAME_STATE == 0)
-            $this->spawns[] = $this->players[$playerName];
-        unset($this->players[$playerName]);
-        $this->pg->refreshSigns($this->SWname, $this->getSlot(true), $this->slot, $this->getState());
-        if ($left)
-            foreach ($this->pg->getServer()->getLevelByName($this->world)->getPlayers() as $p)
-                $p->sendMessage(str_replace('{COUNT}', '[' . $this->getSlot(true) . '/' . $this->slot . ']', str_replace('{PLAYER}', $playerName, $this->pg->lang['game.left'])));
-        if ($spectate && !in_array($playerName, $this->spectators))
-            $this->spectators[] = $playerName;
-        foreach ($this->spectators as $sp) {
-            if ((($p = $this->pg->getServer()->getPlayer($playerName)) instanceof Player) && (($s = $this->pg->getServer()->getPlayer($sp)) instanceof Player))
-                $p->showPlayer($s);
+
+        $this->plugin->setPlayerArena($player, null);
+        $this->plugin->refreshSigns($this->SWname, $this->getSlot(true), $this->slot, $this->getState());
+
+        if ($left) {
+            $this->sendMessage(str_replace("{COUNT}", "[" . $this->getSlot(true) . "/" . $this->slot . "]", str_replace("{PLAYER}", $player->getDisplayName(), $this->plugin->lang["game.left"])));
+        }
+
+        if ($spectate && $current_state !== SWarena::PLAYER_SPECTATING) {
+            $this->setPlayerState($player, SWarena::PLAYER_SPECTATING);
+            foreach ($this->getPlayers(SWarena::PLAYER_SPECTATING) as $pl) {
+                $pl->showPlayer($player);
+            }
         }
         return true;
     }
-
 
     /**
      * @param Player $p
@@ -461,112 +472,99 @@ final class SWarena
      * @param bool $spectate
      * @return bool
      */
-    public function closePlayer(Player $p, $left = false, $spectate = false)
+    public function closePlayer(Player $player, bool $left = false, bool $spectate = false) : bool
     {
-        if ($this->quit($p->getName(), $left, $spectate)) {
-            $p->setGamemode($p->getServer()->getDefaultGamemode());
-            $p->getInventory()->clearAll();
-            $p->removeAllEffects();
-            if ($p->isAlive()) {
-                $p->setSprinting(false);
-                $p->setSneaking(false);
-                $p->extinguish();
-                $p->setMaxHealth(20);
-                $p->setMaxHealth($p->getMaxHealth());
-                if ($p->getAttributeMap() != null) {//just to be really sure
-                    $p->setHealth($p->getMaxHealth());
-                    $p->setFood(20);
-                }
-            }
+        if ($this->quit($player, $left, $spectate)) {
+            $player->setGamemode($player->getServer()->getDefaultGamemode());
             if (!$spectate) {
                 //TODO: Invisibility issues for death players
-                $p->teleport($p->getServer()->getDefaultLevel()->getSpawnLocation());
-            } elseif ($this->GAME_STATE > 0 && 1 < count($this->players)) {
-                $p->setGamemode(Player::SPECTATOR);
-                foreach ($this->players as $dname => $spawn) {
-                    if (($d = $this->pg->getServer()->getPlayer($dname)) instanceof Player)
-                        $d->hidePlayer($p);
+                $player->teleport($player->getServer()->getDefaultLevel()->getSpawnLocation());
+                $playerSnapshot = $this->playerSnapshots[$player->getId()];
+                unset($this->playerSnapshots[$player->getId()]);
+                $playerSnapshot->injectInto($player);
+            } elseif ($this->GAME_STATE !== SWarena::STATE_COUNTDOWN && 1 < count(array_keys($this->players, SWarena::PLAYER_PLAYING, true))) {
+                $player->setGamemode(Player::SPECTATOR);
+                foreach ($this->getPlayers() as $pl) {
+                    $pl->hidePlayer($player);
                 }
-                $idmeta = explode(':', $this->pg->configs['spectator.quit.item']);
-                $p->getInventory()->setHeldItemIndex(0);
-                $p->getInventory()->setItemInHand(Item::get((int)$idmeta[0], (int)$idmeta[1], 1));
-                $p->getInventory()->setHeldItemIndex(1);
-                //$p->getInventory()->setHotbarSlotIndex(0, 0);
-                $p->getInventory()->sendContents($p);
-                $p->getInventory()->sendContents($p->getViewers());
-                $p->sendMessage($this->pg->lang['death.spectator']);
+
+                $idmeta = explode(":", $this->plugin->configs["spectator.quit.item"]);
+                $inventory = $player->getInventory();
+
+                $inventory->setHeldItemIndex(0);
+                $inventory->setItemInHand(Item::get((int)$idmeta[0], (int)$idmeta[1], 1));
+                $inventory->setHeldItemIndex(1);
+
+                $player->sendMessage($this->plugin->lang["death.spectator"]);
             }
             return true;
         }
         return false;
     }
 
-
-    /** VOID */
-    private function start()
+    private function start() : void
     {
-        if ($this->pg->configs['chest.refill'])
+        if ($this->plugin->configs["chest.refill"]) {
             $this->refillChests();
-        foreach ($this->players as $name => $spawn) {
-            if (($p = $this->pg->getServer()->getPlayer($name)) instanceof Player) {
-                $p->setMaxHealth($this->pg->configs['join.max.health']);
-                $p->setMaxHealth($p->getMaxHealth());
-                if ($p->getAttributeMap() != null) {//just to be really sure
-                    if (($health = $this->pg->configs['join.health']) > $p->getMaxHealth() || $health < 1)
-                        $health = $p->getMaxHealth();
-                    $p->setHealth($health);
-                    $p->setFood(20);
-                }
-                $p->sendMessage($this->pg->lang['game.start']);
-                if ($p->getLevel()->getBlock($p->floor()->subtract(0, 2))->getId() == 20)
-                    $p->getLevel()->setBlock($p->floor()->subtract(0, 2), Block::get(0), true, false);
-                if ($p->getLevel()->getBlock($p->floor()->subtract(0, 1))->getId() == 20)
-                    $p->getLevel()->setBlock($p->floor()->subtract(0, 1), Block::get(0), true, false);
-            }
         }
+
+        foreach ($this->getPlayers() as $player) {
+            $player->setMaxHealth($this->plugin->configs["join.max.health"]);
+            $player->setMaxHealth($player->getMaxHealth());
+            if ($player->getAttributeMap() !== null) {//just to be really sure
+                if (($health = $this->plugin->configs["join.health"]) > $player->getMaxHealth() || $health < 1) {
+                    $health = $player->getMaxHealth();
+                }
+                $player->setHealth($health);
+                $player->setFood(20);
+            }
+
+            $player->sendMessage($this->plugin->lang["game.start"]);
+
+            $level = $player->getLevel();
+            $pos = $player->floor();
+
+            for ($i = 1; $i <= 2; ++$i) {
+                if ($level->getBlockIdAt($pos->x, $pos->y - $i, $pos->z) === Block::GLASS) {
+                    $level->setBlock($pos->subtract(0, $i, 0), Block::get(Block::AIR), false);
+                }
+            }
+
+            $player->setImmobile(false);
+        }
+
         $this->time = 0;
-        $this->GAME_STATE = 2;
-        $this->pg->refreshSigns($this->SWname, $this->getSlot(true), $this->slot, $this->getState());
+        $this->GAME_STATE = SWarena::STATE_NOPVP;
+        $this->plugin->refreshSigns($this->SWname, $this->getSlot(true), $this->slot, $this->getState());
     }
 
-
-    /**
-     * @param bool $force
-     * @return bool
-     */
-    public function stop($force = false)
+    public function stop(bool $force = false) : bool
     {
-        $this->pg->getServer()->loadLevel($this->world);
-        //CLOSE SPECTATORS
-        foreach ($this->spectators as $playerName) {
-            if (($s = $this->pg->getServer()->getPlayer($playerName)) instanceof Player)
-                $this->closePlayer($s);
-        }
-        //CLOSE PLAYERS
-        foreach ($this->players as $name => $spawn) {
-            if (($p = $this->pg->getServer()->getPlayer($name)) instanceof Player) {
-                $this->closePlayer($p);
-                if (!$force) {
-                    //Broadcast winner
-                    foreach ($this->pg->getServer()->getDefaultLevel()->getPlayers() as $pl) {
-                        $pl->sendMessage(str_replace('{SWNAME}', $this->SWname, str_replace('{PLAYER}', $p->getName(), $this->pg->lang['server.broadcast.winner'])));
-                    }
-                    //Economy reward
-                    if ($this->pg->configs['reward.winning.players'] && is_numeric($this->pg->configs['reward.value']) && is_int(($this->pg->configs['reward.value'] + 0)) && $this->pg->economy instanceof \svile\sw\utils\SWeconomy && $this->pg->economy->getApiVersion() != 0) {
-                        $this->pg->economy->addMoney($p, (int)$this->pg->configs['reward.value']);
-                        $p->sendMessage(str_replace('{MONEY}', $this->pg->economy->getMoney($p), str_replace('{VALUE}', $this->pg->configs['reward.value'], $this->pg->lang['winner.reward.msg'])));
-                    }
-                    //Reward command
-                    $command = trim($this->pg->configs['reward.command']);
-                    if (strlen($command) > 1 && $command{0} == '/') {
-                        $this->pg->getServer()->dispatchCommand(new \pocketmine\command\ConsoleCommandSender(), str_replace('{PLAYER}', $p->getName(), substr($command, 1)));
-                    }
+        $server = $this->plugin->getServer();
+        $server->loadLevel($this->world);
+
+        foreach ($this->getPlayers() as $player) {
+            $is_winner = !$force && $this->inArena($player) === SWarena::PLAYER_PLAYING;
+            $this->closePlayer($player);
+
+            if ($is_winner) {
+                //Broadcast winner
+                $server->broadcastMessage(str_replace(["{SWNAME}", "{PLAYER}"], [$this->SWname, $player->getName()], $this->plugin->lang["server.broadcast.winner"]), $server->getDefaultLevel()->getPlayers());
+
+                //Economy reward
+                if ($this->plugin->configs["reward.winning.players"] && is_numeric($this->plugin->configs["reward.value"]) && is_int(($this->plugin->configs["reward.value"] + 0)) && $this->plugin->economy instanceof \svile\sw\utils\SWeconomy && $this->plugin->economy->getApiVersion() != 0) {
+                    $this->plugin->economy->addMoney($player, (int)$this->plugin->configs["reward.value"]);
+                    $player->sendMessage(str_replace(["{MONEY}", "{VALUE}"], [$this->plugin->economy->getMoney($player), $this->plugin->configs["reward.value"]], $this->plugin->lang["winner.reward.msg"]));
+                }
+
+                //Reward command
+                $command = trim($this->plugin->configs["reward.command"]);
+                if (strlen($command) > 1 && $command{0} === "/") {
+                    $this->plugin->getServer()->dispatchCommand(new \pocketmine\command\ConsoleCommandSender(), str_replace("{PLAYER}", $p->getName(), substr($command, 1)));
                 }
             }
         }
-        //Other players
-        foreach ($this->pg->getServer()->getLevelByName($this->world)->getPlayers() as $p)
-            $p->teleport($p->getServer()->getDefaultLevel()->getSpawnLocation());
+
         $this->reload();
         return true;
     }
