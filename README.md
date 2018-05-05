@@ -11,7 +11,7 @@ _This plugin helped you? Do you like it? **Support it by donating!**_<br/>
 
 ---
 ### Releases - Downloads
-_Click [**here**](https://github.com/svilex/SkyWars-PocketMine/releases) to browse new releases_.
+_Click [**here**](https://poggit.pmmp.io/ci/Muqsit/SkyWars-PocketMine) to browse new releases_.
 ---
 ### How to use
 
