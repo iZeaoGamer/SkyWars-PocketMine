@@ -230,7 +230,7 @@ class SWarena {
         $config = new Config($this->plugin->getDataFolder() . "arenas/" . $this->SWname . "/settings.yml", Config::YAML);
 
         if (empty($config->get("spawns", []))) {
-            $config->set("spawns", array_fill(1, $this->slots, [
+            $config->set("spawns", array_fill(1, $this->slot, [
                 "x" => "n.a",
                 "y" => "n.a",
                 "z" => "n.a",
