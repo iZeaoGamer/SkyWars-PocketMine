@@ -482,14 +482,14 @@ class SWmain extends PluginBase {
             shuffle($contents);
 
             $fcontents = [
-                mt_rand(1, 2) => array_shift($contents),
-                mt_rand(3, 5) => array_shift($contents),
-                mt_rand(6, 10) => array_shift($contents),
-                mt_rand(11, 15) => array_shift($contents),
-                mt_rand(16, 17) => array_shift($contents),
-                mt_rand(18, 20) => array_shift($contents),
-                mt_rand(21, 25) => array_shift($contents),
-                mt_rand(26, 27) => array_shift($contents),
+                mt_rand(0, 1) => array_shift($contents),
+                mt_rand(2, 4) => array_shift($contents),
+                mt_rand(5, 9) => array_shift($contents),
+                mt_rand(10, 14) => array_shift($contents),
+                mt_rand(15, 16) => array_shift($contents),
+                mt_rand(17, 19) => array_shift($contents),
+                mt_rand(20, 24) => array_shift($contents),
+                mt_rand(25, 26) => array_shift($contents),
            ];
 
             $templates[] = $fcontents;
