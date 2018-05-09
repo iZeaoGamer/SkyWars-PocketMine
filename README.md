@@ -1,76 +1,24 @@
 # SkyWars - PocketMine plugin
 ![skywars](https://raw.githubusercontent.com/svilex/res/master/skywars.png)
 ---
-### About
-This is a [PocketMine-MP](https://github.com/pmmp/PocketMine-MP) (or forks) plugin which allows you to simply create multiple SkyWars mini-games ! :grin:
-
-**This plugin was tested (and works) on:**
-
-- [x] **[PocketMine-MP](https://github.com/pmmp/PocketMine-MP)**
-
-_not tested doesn't mean not working_<br>
-_android devices are not supported_
-
----
 ### Donate
 _Making a **donation** is an act of generosity. Your support, however modest it might be, is necessary._<br/>
 _Your **donations** helps me to continue creating plugins and improve this project!_<br/>
-_This plugin helped you? Do you like it? **Support it by donating!**_
-
-_Benefits: You will be credited in the source code as a generous **donor**_ :smile:
-
-**GOAL: :moneybag: €8 / €20**
+_This plugin helped you? Do you like it? **Support it by donating!**_<br/>
+**NOTE:** Donations go to the main owner of the repo (Svilex). This specific fork is NOT being maintained by svilex, you may still donate to svilex if you are feeling generous.
 
 - ![Paypal](https://raw.githubusercontent.com/svilex/res/master/paypal.png) Paypal: [**Donate**](https://www.paypal.me/svile) :money_with_wings:
 
 ---
 ### Releases - Downloads
-
-* **pre-Release [_0.6_](https://github.com/svilex/SkyWars-PocketMine/releases/tag/v0.6) (May 7, 2016)**
-
->- Beautiful config file with descriptions.<br>
->- Spectator mode when a player dies.<br>
->- Economy support for money rewards.<br>
->- Reward command.<br>
->- /sw join & /sw quit.<br>
->- New sign knockBack type.<br>
->- More death messages.<br>
->- An option to set the player max health.<br>
->- An option to choose if a player can drop items.<br>
->- Added COBBLESTONE & DIRT to chests.<br>
->- Bug Fixes that you don't need to know because are a lot :smirk:
-
-* **pre-Release [_0.4_](https://github.com/svilex/SkyWars-PocketMine/releases/tag/v0.4) (April 24, 2016)**
-
->- Added air generator option.<br>
->- Added a config for signs format.<br>
->- Better and faster world reset.<br>
->- Bug Fixes.
-
-* **pre-Release [_0.3_](https://github.com/svilex/SkyWars-PocketMine/releases/tag/v0.3) (April 14, 2016)**
-
->- Maybe fixed #3<br>
->- Added a sound on arena join.
-
-<!--
-* **pre-Release [_0.2_](https://github.com/svilex/SkyWars-PocketMine/releases/tag/v0.2) (April 13, 2016)**
-
->- Now removing players effects on respawn, arena join, quit.<br>
->- Added a config option to set the needed players for the countdown start.<br>
->- Now players are no more able to interact before the game start.<br>
->- Added a sound for the last 10 seconds of the countdown.<br>
--->
-
-_Click [**here**](https://github.com/svilex/SkyWars-PocketMine/releases) for other releases_.
-
+_Click [**here**](https://poggit.pmmp.io/ci/Muqsit/SkyWars-PocketMine) to browse new releases_.
 ---
 ### How to use
 
 ##### Installation
-**1.** Download a plugin release (the last is recommended) from above.<br/>
-**2.** Choose the `SW_svile_php*.phar` file according to your php version.<br/>
-**3.** Extract the file into the **plugins/** folder of your server and restart it.<br/>
-**4.** Done, you can now join the game and create arenas _(SkyWars\_mini-games)_.
+**1.** Download a plugin release (the last is recommended) from the link above.<br/>
+**2.** Drop the `SkyWars-PocketMine.phar` into the **plugins/** folder of your server and restart it.<br/>
+**3.** Done, you can now join the game and create arenas _(SkyWars\_mini-games)_.
 
 ##### How to create an arena
 **1.** Teleport yourself in the world where you would like to create it (not default one).<br/>
@@ -92,27 +40,7 @@ Command | Description
 /sw join **[**SWname**]** [PlayerName] | Anyone except ops can use this command to join SW games.<br/>- **PlayerName** can be used only by CONSOLE to force the player to join the specified arena.
 /sw quit | Anyone except ops can use this command to left the current SW game.
 
-##### Here there are some videos that explains how to create an arena in different languages:
-
-- [Deutsch]() no video yet
-- [English]() no video yet
-- [Español]() no video yet
-- [Français]() no video yet
-- [Italiano]() no video yet
-
-###### Have you made a video? Contact me to put it here:exclamation:
-
----
-### Contacts
-
-- **Kik:** \_svile\_<br/>
-- **Telegram_Gruop:** :link: https://telegram.me/svile<br/>
-- **E-mail:** thesville@gmail.com<br/>
-
-###### _fell free to make pull requests and to contact me for any help_.
-
-
-
+###### _Feel free to make pull requests and to contact me for any help_.
 ---
 ### License
 This plugin is licensed under the [GPLv3](http://www.gnu.org/licenses/gpl-3.0.html)
