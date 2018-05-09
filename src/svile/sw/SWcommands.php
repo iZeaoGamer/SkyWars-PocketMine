@@ -161,8 +161,8 @@ class SWcommands extends PluginCommand {
                 }
 
                 //Checks if there is already an arena in the world
-                foreach ($this->getPlugin()->arenas as $aname => $arena) {
-                    if ($arena->getWorld() === $level_name) {
+                foreach ($this->getPlugin()->arenas as $aname => $arena_instance) {
+                    if ($arena_instance->getWorld() === $level_name) {
                         $sender->sendMessage(
                             TextFormat::RED . "You can't create multiple arenas in the same world. Try:" . TextFormat::EOL .
                             TextFormat::GOLD . "/" . $commandLabel . " list " . TextFormat::RED . "for a list of arenas." . TextFormat::EOL .
