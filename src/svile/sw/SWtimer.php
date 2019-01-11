@@ -40,29 +40,27 @@
 
 namespace svile\sw;
 
-use pocketmine\scheduler\PluginTask;
+use pocketmine\scheduler\Task;
 
-class SWtimer extends PluginTask {
+class SWtimer extends Task {
 
     /** @var bool */
     private $tick;
 
     public function __construct(SWmain $plugin)
     {
-        parent::__construct($plugin);
         $this->tick = (bool) $plugin->configs["sign.tick"];
     }
 
     public function onRun(int $tick) : void
     {
-        $owner = $this->getOwner();
 
-        foreach ($owner->arenas as $arena) {
+        foreach ($plugin->arenas as $arena) {
             $arena->tick();
         }
 
         if ($this->tick && ($tick % 5 === 0)) {
-            $owner->refreshSigns();
+            $plugin->refreshSigns();
         }
     }
 }
