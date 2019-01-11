@@ -3,4 +3,4 @@ author: svile
 description: SkyWars plugin
 main: svile\sw\SWmain
 version: 0.7dev
-api: [3.0.0-ALPHA12]
+api: [3.0.0]
